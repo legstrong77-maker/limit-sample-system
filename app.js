@@ -159,11 +159,6 @@ function renderSearchResults(container, results) {
   }
 
   container.innerHTML = results.map((item) => renderSampleCard(item, false)).join('');
-
-  // 載入圖片
-  results.forEach((item) => {
-    item.images.forEach((img) => loadImage(img.fileId));
-  });
 }
 
 // ============================================================
@@ -217,11 +212,6 @@ function renderAdminResults(container, results) {
   }
 
   container.innerHTML = results.map((item) => renderSampleCard(item, true)).join('');
-
-  // 載入圖片
-  results.forEach((item) => {
-    item.images.forEach((img) => loadImage(img.fileId));
-  });
 }
 
 // ============================================================
@@ -233,15 +223,10 @@ function renderSampleCard(item, isAdmin) {
     .map(
       (img) => `
     <div class="image-item" onclick="openLightbox('${img.fileId}')">
-      <img id="img-${img.fileId}" src="" alt="${img.fileName}" style="background: var(--bg-secondary)" />
+      <img id="img-${img.fileId}" src="https://drive.google.com/thumbnail?id=${img.fileId}&sz=w600" alt="${img.fileName}" style="background: var(--bg-secondary)" loading="lazy" />
       <div class="image-overlay">
         <span class="image-name">${escapeHtml(img.fileName)}</span>
       </div>
-      ${
-        isAdmin
-          ? ''
-          : ''
-      }
     </div>
   `
     )
@@ -316,14 +301,7 @@ function openLightbox(fileId) {
   const overlay = document.getElementById('lightbox');
   const img = document.getElementById('lightboxImg');
 
-  if (state.imageCache[fileId]) {
-    img.src = state.imageCache[fileId];
-  } else {
-    img.src = '';
-    loadImage(fileId).then(() => {
-      img.src = state.imageCache[fileId] || '';
-    });
-  }
+  img.src = "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w2000";
 
   overlay.classList.add('active');
   document.body.style.overflow = 'hidden';
@@ -428,7 +406,7 @@ function showEditModal(productId) {
     .map(
       (img) => `
     <div class="upload-preview-item" id="existing-img-${img.id}">
-      <img id="edit-img-${img.fileId}" src="${state.imageCache[img.fileId] || ''}" alt="${img.fileName}" />
+      <img id="edit-img-${img.fileId}" src="https://drive.google.com/thumbnail?id=${img.fileId}&sz=w200" alt="${img.fileName}" loading="lazy" />
       <button class="remove-btn" onclick="markImageForDeletion('${img.id}', '${img.fileId}')">&times;</button>
     </div>
   `
@@ -476,16 +454,6 @@ function showEditModal(productId) {
       <button class="btn btn-primary" onclick="submitEdit('${escapeHtml(sample.productId)}')">確認修改</button>
     </div>
   `);
-
-  // 載入尚未快取的編輯圖片
-  sample.images.forEach((img) => {
-    if (!state.imageCache[img.fileId]) {
-      loadImage(img.fileId).then(() => {
-        const el = document.getElementById('edit-img-' + img.fileId);
-        if (el) el.src = state.imageCache[img.fileId];
-      });
-    }
-  });
 
   setupDragDrop();
 }
@@ -555,16 +523,46 @@ function addFiles(files) {
 
     const reader = new FileReader();
     reader.onload = (e) => {
-      state.pendingFiles.push({
-        fileName: file.name,
-        mimeType: file.type,
-        dataUrl: e.target.result,
-        data: e.target.result.split(',')[1], // base64 without prefix
+      compressImage(e.target.result, file.type, 1280, 0.8, (compressedDataUrl) => {
+        state.pendingFiles.push({
+          fileName: file.name.replace(/\.[^/.]+$/, "") + ".jpg",
+          mimeType: 'image/jpeg',
+          dataUrl: compressedDataUrl,
+          data: compressedDataUrl.split(',')[1], // base64 without prefix
+        });
+        renderUploadPreviews();
       });
-      renderUploadPreviews();
     };
     reader.readAsDataURL(file);
   }
+}
+
+function compressImage(dataUrl, mimeType, maxSize, quality, callback) {
+  const img = new Image();
+  img.onload = () => {
+    let width = img.width;
+    let height = img.height;
+
+    if (width > maxSize || height > maxSize) {
+      if (width > height) {
+        height = Math.round((height *= maxSize / width));
+        width = maxSize;
+      } else {
+        width = Math.round((width *= maxSize / height));
+        height = maxSize;
+      }
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, width, height);
+
+    const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+    callback(compressedDataUrl);
+  };
+  img.src = dataUrl;
 }
 
 function removePendingFile(index) {
@@ -642,20 +640,34 @@ function capturePhoto() {
   const canvas = document.getElementById('cameraCanvas');
   if (!video || !canvas) return;
 
-  // 使用原始解析度
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0);
+  // 使用壓縮解析度
+  let width = video.videoWidth;
+  let height = video.videoHeight;
+  const maxSize = 1280;
+  
+  if (width > maxSize || height > maxSize) {
+    if (width > height) {
+      height = Math.round((height *= maxSize / width));
+      width = maxSize;
+    } else {
+      width = Math.round((width *= maxSize / height));
+      height = maxSize;
+    }
+  }
 
-  // 轉成 PNG（無損）
-  const dataUrl = canvas.toDataURL('image/png');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, width, height);
+
+  // 轉成 JPEG
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `photo_${timestamp}.png`;
+  const fileName = `photo_${timestamp}.jpg`;
 
   state.pendingFiles.push({
     fileName,
-    mimeType: 'image/png',
+    mimeType: 'image/jpeg',
     dataUrl,
     data: dataUrl.split(',')[1],
   });
@@ -747,20 +759,6 @@ async function submitEdit(originalProductId) {
     showToast('限樣更新成功', 'success');
     closeModal();
 
-    // 清除被刪除圖片的快取
-    if (state.editDeletedImageIds) {
-      state.editDeletedImageIds.forEach((id) => {
-        // find fileId from allSamples
-        const sample = state.allSamples.find(
-          (s) => s.productId === originalProductId
-        );
-        if (sample) {
-          const img = sample.images.find((i) => i.id === id);
-          if (img) delete state.imageCache[img.fileId];
-        }
-      });
-    }
-
     loadAllSamples();
   } catch (err) {
     showToast('更新失敗：' + err.message, 'error');
@@ -785,12 +783,6 @@ async function submitDelete(productId) {
 
     showToast(`已刪除品號 ${productId} 的限樣`, 'success');
     closeModal();
-
-    // 清除快取
-    const sample = state.allSamples.find((s) => s.productId === productId);
-    if (sample) {
-      sample.images.forEach((img) => delete state.imageCache[img.fileId]);
-    }
 
     loadAllSamples();
   } catch (err) {
