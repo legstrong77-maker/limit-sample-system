@@ -1,7 +1,6 @@
 // ============================================================
 // 限樣系統 - 設定檔
 // ============================================================
-// 部署 Google Apps Script 後，將 Web App URL 填入下方
 const CONFIG = {
-  API_URL: 'YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzovBoeNuGR6wQudmyelVzhdXOVoQ841wVxH5kK81dJn4Nbw6nwWWu7JjFZCq0xhFe5Fg/exec',
 };
