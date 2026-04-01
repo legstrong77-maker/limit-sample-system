@@ -372,11 +372,12 @@ function showCreateModal() {
       <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
         <div class="upload-icon">📷</div>
         <div class="upload-text">
-          點擊上傳照片或<strong>拖曳檔案</strong>到此處
+          點擊選取照片或<strong>拖曳檔案</strong>到此處
         </div>
-        <input type="file" id="fileInput" accept="image/*" multiple onchange="handleFileSelect(event)" />
+        <input type="file" id="fileInput" accept="image/*" multiple onchange="handleFileSelect(event)" style="display:none;" />
+        <input type="file" id="cameraInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)" style="display:none;" />
         <div class="camera-btn-row">
-          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openCamera()">📸 使用相機拍照</button>
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); document.getElementById('cameraInput').click()">📸 開啟原生相機拍照</button>
         </div>
       </div>
       <div class="upload-preview-grid" id="uploadPreview"></div>
@@ -439,11 +440,12 @@ function showEditModal(productId) {
       <div class="upload-area" onclick="document.getElementById('editFileInput').click()">
         <div class="upload-icon">📷</div>
         <div class="upload-text">
-          點擊上傳或<strong>拖曳檔案</strong>
+          點擊選取照片或<strong>拖曳檔案</strong>
         </div>
-        <input type="file" id="editFileInput" accept="image/*" multiple onchange="handleFileSelect(event)" />
+        <input type="file" id="editFileInput" accept="image/*" multiple onchange="handleFileSelect(event)" style="display:none;" />
+        <input type="file" id="editCameraInput" accept="image/*" capture="environment" onchange="handleFileSelect(event)" style="display:none;" />
         <div class="camera-btn-row">
-          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); openCamera()">📸 使用相機拍照</button>
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation(); document.getElementById('editCameraInput').click()">📸 開啟原生相機拍照</button>
         </div>
       </div>
       <div class="upload-preview-grid" id="uploadPreview"></div>
@@ -586,102 +588,7 @@ function renderUploadPreviews() {
     .join('');
 }
 
-// ============================================================
-// 相機拍照
-// ============================================================
-
-function openCamera() {
-  openModal(`
-    <div class="modal-header">
-      <h3 class="modal-title">📸 拍照</h3>
-      <button class="modal-close" onclick="stopCamera(); closeModal()">&times;</button>
-    </div>
-    <div style="position: relative; border-radius: var(--radius-md); overflow: hidden; background: #000;">
-      <video id="cameraVideo" autoplay playsinline style="width: 100%; display: block;"></video>
-      <canvas id="cameraCanvas" style="display: none;"></canvas>
-    </div>
-    <div class="modal-footer" style="justify-content: center;">
-      <button class="btn btn-primary btn-lg" onclick="capturePhoto()">📷 拍攝</button>
-      <button class="btn btn-secondary" onclick="stopCamera(); closeModal()">取消</button>
-    </div>
-  `);
-
-  startCamera();
-}
-
-let cameraStream = null;
-
-async function startCamera() {
-  try {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 4096 },
-        height: { ideal: 4096 },
-      },
-    });
-    const video = document.getElementById('cameraVideo');
-    if (video) video.srcObject = cameraStream;
-  } catch (err) {
-    showToast('無法開啟相機：' + err.message, 'error');
-    closeModal();
-  }
-}
-
-function stopCamera() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach((t) => t.stop());
-    cameraStream = null;
-  }
-}
-
-function capturePhoto() {
-  const video = document.getElementById('cameraVideo');
-  const canvas = document.getElementById('cameraCanvas');
-  if (!video || !canvas) return;
-
-  // 使用壓縮解析度
-  let width = video.videoWidth;
-  let height = video.videoHeight;
-  const maxSize = 1280;
-  
-  if (width > maxSize || height > maxSize) {
-    if (width > height) {
-      height = Math.round((height *= maxSize / width));
-      width = maxSize;
-    } else {
-      width = Math.round((width *= maxSize / height));
-      height = maxSize;
-    }
-  }
-
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, width, height);
-
-  // 轉成 JPEG
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const fileName = `photo_${timestamp}.jpg`;
-
-  state.pendingFiles.push({
-    fileName,
-    mimeType: 'image/jpeg',
-    dataUrl,
-    data: dataUrl.split(',')[1],
-  });
-
-  stopCamera();
-  closeModal();
-
-  // 重新開啟之前的 modal（新增或編輯）
-  // 先渲染預覽
-  setTimeout(() => {
-    // 如果是新增模式，重新打開新增 modal
-    showCreateModal();
-  }, 100);
-}
+// (已移除 HTML5 Web 相機模組，改用原生系統相機)
 
 // ============================================================
 // 提交新增
