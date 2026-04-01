@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="限樣管理系統 - 品質管控的限度樣品查詢與管理平台" />
+    <title>限樣系統</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner-large"></div>
+      <span style="color: var(--text-secondary)">處理中...</span>
+    </div>
+
+    <!-- Lightbox -->
+    <div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
+      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
+      <img id="lightboxImg" src="" alt="限樣照片" />
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-content" id="modalContent"></div>
+    </div>
+
+    <!-- App -->
+    <div class="app-container">
+      <!-- Header -->
+      <header class="app-header">
+        <div class="app-logo">
+          <div class="app-logo-icon">📋</div>
+          <h1>限樣系統</h1>
+        </div>
+        <div class="header-actions">
+          <div class="mode-tabs">
+            <button
+              class="mode-tab active"
+              data-mode="user"
+              onclick="switchMode('user')"
+              id="tabUser"
+            >
+              <span class="tab-icon">🔍</span>
+              查詢模式
+            </button>
+            <button
+              class="mode-tab"
+              data-mode="admin"
+              onclick="switchMode('admin')"
+              id="tabAdmin"
+            >
+              <span class="tab-icon">⚙️</span>
+              管理模式
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- User Mode -->
+      <section id="userSection" class="page-section">
+        <div class="search-container">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            class="search-input"
+            id="searchInput"
+            placeholder="輸入品號搜尋限樣..."
+            onkeyup="handleSearch(event)"
+          />
+        </div>
+        <div id="searchResults" class="results-grid">
+          <div class="empty-state">
+            <div class="empty-icon">📦</div>
+            <h3>輸入品號開始搜尋</h3>
+            <p>在上方搜尋欄輸入品號，即可查看對應的限樣資料</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Admin Mode -->
+      <section id="adminSection" class="page-section" style="display: none">
+        <!-- Admin Login (shown first) -->
+        <div id="adminLogin">
+          <div class="card admin-login-card">
+            <div class="login-icon">🔐</div>
+            <h2>管理員登入</h2>
+            <p>請輸入管理員密碼以進入管理模式</p>
+            <div class="form-group">
+              <input
+                type="password"
+                class="form-input"
+                id="adminPassword"
+                placeholder="請輸入密碼"
+                onkeyup="if(event.key==='Enter') adminLogin()"
+              />
+            </div>
+            <button class="btn btn-primary btn-lg" onclick="adminLogin()" style="width: 100%">
+              登入
+            </button>
+          </div>
+        </div>
+
+        <!-- Admin Panel (shown after login) -->
+        <div id="adminPanel" style="display: none">
+          <div class="admin-toolbar">
+            <h2>📋 限樣管理</h2>
+            <div style="display: flex; gap: 8px">
+              <button class="btn btn-primary" onclick="showCreateModal()">
+                ➕ 新增限樣
+              </button>
+              <button class="btn btn-ghost" onclick="adminLogout()">
+                🚪 登出
+              </button>
+            </div>
+          </div>
+
+          <div class="search-container">
+            <span class="search-icon">🔍</span>
+            <input
+              type="text"
+              class="search-input"
+              id="adminSearchInput"
+              placeholder="搜尋品號..."
+              onkeyup="handleAdminSearch(event)"
+            />
+          </div>
+
+          <div id="adminResults" class="results-grid">
+            <div class="empty-state">
+              <div class="empty-icon">⏳</div>
+              <h3>載入中...</h3>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
