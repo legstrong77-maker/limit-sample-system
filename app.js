@@ -36,6 +36,9 @@ const state = {
     const panelEl = document.getElementById('adminPanel');
     if (loginEl) loginEl.style.display = 'none';
     if (panelEl) panelEl.style.display = 'block';
+    
+    // 自動載入名單並切換標籤樣式
+    switchMode('admin');
   }
 
   if (document.readyState === 'loading') {
@@ -517,9 +520,14 @@ function showCreateModal() {
 // ============================================================
 
 function showEditModal(productId) {
-  const sample = state.allSamples.find((s) => String(s.productId) === String(productId));
+  const targetId = String(productId || '').trim().toUpperCase();
+  const sample = state.allSamples.find(
+    (s) => String(s.productId || '').trim().toUpperCase() === targetId
+  );
+
   if (!sample) {
     showToast('找不到該品號的資料', 'error');
+    console.error('All samples:', state.allSamples, 'Target:', targetId);
     return;
   }
 
