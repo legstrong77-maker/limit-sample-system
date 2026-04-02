@@ -517,7 +517,7 @@ function showCreateModal() {
 // ============================================================
 
 function showEditModal(productId) {
-  const sample = state.allSamples.find((s) => s.productId === productId);
+  const sample = state.allSamples.find((s) => String(s.productId) === String(productId));
   if (!sample) {
     showToast('找不到該品號的資料', 'error');
     return;
