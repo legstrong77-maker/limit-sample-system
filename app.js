@@ -16,6 +16,7 @@ const state = {
   editDeletedImageIds: [],
   // 排序設定
   userSort: { by: 'productId', dir: 'asc' },
+  adminSort: { by: 'productId', dir: 'asc' },
 };
 
 let dataLoadPromise = null;
