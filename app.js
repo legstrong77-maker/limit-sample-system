@@ -143,8 +143,8 @@ function sortSamples(samples, sortConfig) {
   return [...samples].sort((a, b) => {
     let valA, valB;
     if (by === 'productId') {
-      valA = (a.productId || '').toUpperCase();
-      valB = (b.productId || '').toUpperCase();
+      valA = String(a.productId || '').toUpperCase();
+      valB = String(b.productId || '').toUpperCase();
     } else if (by === 'createdAt') {
       valA = new Date(a.createdAt || 0).getTime();
       valB = new Date(b.createdAt || 0).getTime();
@@ -166,7 +166,6 @@ function setUserSort(by) {
     state.userSort.dir = 'asc';
   }
   updateSortUI('user');
-  // 重新渲染當前搜尋結果
   const query = document.getElementById('searchInput').value.trim();
   if (query) performSearch(query);
 }
@@ -181,7 +180,7 @@ function setAdminSort(by) {
   updateSortUI('admin');
   const query = document.getElementById('adminSearchInput').value.trim().toUpperCase();
   const source = query
-    ? state.allSamples.filter((s) => s.productId.toUpperCase().includes(query))
+    ? state.allSamples.filter((s) => String(s.productId || '').toUpperCase().includes(query))
     : state.allSamples;
   const container = document.getElementById('adminResults');
   renderAdminResults(container, source);
@@ -285,7 +284,7 @@ function handleAdminSearch(event) {
   const container = document.getElementById('adminResults');
 
   const source = query
-    ? state.allSamples.filter((s) => s.productId.toUpperCase().includes(query))
+    ? state.allSamples.filter((s) => String(s.productId || '').toUpperCase().includes(query))
     : state.allSamples;
 
   renderAdminResults(container, source);
