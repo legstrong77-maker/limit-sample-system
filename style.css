@@ -1105,3 +1105,57 @@ body {
   font-weight: 600;
   font-size: 1.1rem;
 }
+
+/* ============================================================
+   Folder View
+   ============================================================ */
+.folder-container {
+  margin-bottom: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.folder-header {
+  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  transition: background var(--transition-fast);
+  user-select: none;
+}
+
+.folder-header:hover {
+  background: var(--bg-card-hover);
+}
+
+.folder-icon {
+  margin-right: 12px;
+  font-size: 1.2rem;
+}
+
+.folder-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.folder-count {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-right: 12px;
+}
+
+.folder-toggle {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.folder-content {
+  padding: 20px;
+  border-top: 1px solid var(--border-color);
+}
+

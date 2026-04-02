@@ -37,6 +37,9 @@ const state = {
     if (loginEl) loginEl.style.display = 'none';
     if (panelEl) panelEl.style.display = 'block';
     
+    const btnPwd = document.getElementById('btnManagePwd');
+    if (btnPwd) btnPwd.style.display = (savedPwd === 'fk2498505') ? 'inline-flex' : 'none';
+    
     // 自動載入名單並切換標籤樣式
     switchMode('admin');
   }
@@ -89,6 +92,10 @@ async function adminLogin() {
       sessionStorage.setItem('adminPassword', password); // 持久化
       document.getElementById('adminLogin').style.display = 'none';
       document.getElementById('adminPanel').style.display = 'block';
+      
+      const btnPwd = document.getElementById('btnManagePwd');
+      if (btnPwd) btnPwd.style.display = (password === 'fk2498505') ? 'inline-flex' : 'none';
+
       showToast('登入成功', 'success');
       loadAllSamples();
     } else {
@@ -108,6 +115,10 @@ function adminLogout() {
   document.getElementById('adminLogin').style.display = 'block';
   document.getElementById('adminPanel').style.display = 'none';
   document.getElementById('adminPassword').value = '';
+
+  const btnPwd = document.getElementById('btnManagePwd');
+  if (btnPwd) btnPwd.style.display = 'none';
+
   showToast('已登出', 'info');
 }
 
@@ -306,7 +317,68 @@ function renderAdminResults(container, results) {
   }
 
   const sorted = sortSamples(results, state.adminSort);
-  container.innerHTML = sorted.map((item) => renderSampleCard(item, true)).join('');
+
+  // Group by Folders (based on 3rd to 7th digit of product ID)
+  const folders = {};
+  const noFolder = [];
+
+  sorted.forEach(item => {
+    const pid = String(item.productId || '').trim();
+    if (pid.length >= 7) {
+      const folderName = pid.substring(2, 7);
+      if (!folders[folderName]) folders[folderName] = [];
+      folders[folderName].push(item);
+    } else {
+      noFolder.push(item);
+    }
+  });
+
+  let html = '';
+
+  const folderNames = Object.keys(folders).sort();
+  folderNames.forEach(folderName => {
+    const items = folders[folderName];
+    const itemsHtml = items.map(item => renderSampleCard(item, true)).join('');
+    html += `
+      <div class="folder-container">
+        <div class="folder-header" onclick="toggleFolder(this)">
+          <span class="folder-icon">📁</span>
+          <span class="folder-name">${escapeHtml(folderName)}</span>
+          <span class="folder-count">(${items.length})</span>
+          <span class="folder-toggle">▼</span>
+        </div>
+        <div class="folder-content" style="display: none;">
+          <div class="results-grid">${itemsHtml}</div>
+        </div>
+      </div>
+    `;
+  });
+
+  if (noFolder.length > 0) {
+    const noFolderHtml = noFolder.map(item => renderSampleCard(item, true)).join('');
+    html += `
+      <div class="folder-container">
+        <div class="folder-header" onclick="toggleFolder(this)">
+          <span class="folder-icon">📁</span>
+          <span class="folder-name">其他</span>
+          <span class="folder-count">(${noFolder.length})</span>
+          <span class="folder-toggle">▼</span>
+        </div>
+        <div class="folder-content" style="display: none;">
+          <div class="results-grid">${noFolderHtml}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+}
+
+function toggleFolder(el) {
+  const content = el.nextElementSibling;
+  const isHidden = content.style.display === 'none';
+  content.style.display = isHidden ? 'block' : 'none';
+  el.querySelector('.folder-toggle').textContent = isHidden ? '▲' : '▼';
 }
 
 // ============================================================
@@ -906,4 +978,96 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+// ============================================================
+// 密碼管理 Modal
+// ============================================================
+
+async function showPwdManager() {
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">🔑 密碼管理</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div id="pwdManagerContent">
+      <div class="empty-state"><div class="loading-spinner">載入中...</div></div>
+    </div>
+  `);
+
+  try {
+    const res = await apiPost({ action: 'getPasswords' });
+    if (res.error) throw new Error(res.error);
+    
+    let html = `
+      <div style="margin-bottom: 20px; display: flex; gap: 8px;">
+        <input type="text" id="newPwd" class="form-input" placeholder="新密碼" style="flex: 1;" />
+        <input type="text" id="newMemo" class="form-input" placeholder="備註(如: 林xx)" style="flex: 1;" />
+        <button class="btn btn-primary" onclick="submitAddPwd()">新增</button>
+      </div>
+      <table style="width: 100%; text-align: left; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 1px solid var(--border-color);">
+            <th style="padding: 8px;">密碼</th>
+            <th style="padding: 8px;">備註</th>
+            <th style="padding: 8px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+    `;
+
+    if (res.passwords.length === 0) {
+      html += `<tr><td colspan="3" style="padding: 16px; text-align: center; color: var(--text-muted);">尚無其他密碼</td></tr>`;
+    } else {
+      res.passwords.forEach(p => {
+        html += `
+          <tr style="border-bottom: 1px solid var(--border-color);">
+            <td style="padding: 8px;">${escapeHtml(p.pwd)}</td>
+            <td style="padding: 8px;">${escapeHtml(p.memo)}</td>
+            <td style="padding: 8px;">
+              <button class="btn btn-danger btn-sm" onclick="submitDeletePwd('${escapeHtml(p.pwd)}')">刪除</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    html += `</tbody></table>`;
+    document.getElementById('pwdManagerContent').innerHTML = html;
+  } catch (err) {
+    document.getElementById('pwdManagerContent').innerHTML = `<p style="color:var(--danger)">載入失敗: ${err.message}</p>`;
+  }
+}
+
+async function submitAddPwd() {
+  const pwd = document.getElementById('newPwd').value.trim();
+  const memo = document.getElementById('newMemo').value.trim();
+  if (!pwd) return showToast('請輸入密碼', 'error');
+
+  showLoading(true);
+  try {
+    const res = await apiPost({ action: 'addPassword', newPassword: pwd, memo });
+    if (res.error) throw new Error(res.error);
+    showToast('新增成功', 'success');
+    showPwdManager(); // reload
+  } catch(e) {
+    showToast('新增失敗: ' + e.message, 'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function submitDeletePwd(pwd) {
+  if (!confirm(`確定刪除密碼 ${pwd}？`)) return;
+  showLoading(true);
+  try {
+    const res = await apiPost({ action: 'deletePassword', targetPassword: pwd });
+    if (res.error) throw new Error(res.error);
+    showToast('刪除成功', 'success');
+    showPwdManager(); // reload
+  } catch(e) {
+    showToast('刪除失敗: ' + e.message, 'error');
+  } finally {
+    showLoading(false);
+  }
 }

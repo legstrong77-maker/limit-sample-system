@@ -122,6 +122,9 @@
           <div class="admin-toolbar">
             <h2>📋 限樣管理</h2>
             <div style="display: flex; gap: 8px">
+              <button id="btnManagePwd" class="btn btn-secondary" style="display:none" onclick="showPwdManager()">
+                🔑 密碼管理
+              </button>
               <button class="btn btn-primary" onclick="showCreateModal()">
                 ➕ 新增限樣
               </button>
@@ -153,7 +156,7 @@
             </button>
           </div>
 
-          <div id="adminResults" class="results-grid">
+          <div id="adminResults">
             <div class="empty-state">
               <div class="empty-icon">⏳</div>
               <h3>載入中...</h3>
@@ -163,7 +166,7 @@
       </section>
     </div>
 
-    <script src="config.js?v=6"></script>
-    <script src="app.js?v=6"></script>
+    <script src="config.js?v=7"></script>
+    <script src="app.js?v=7"></script>
   </body>
 </html>

@@ -4,7 +4,9 @@
 // 部署前請設定以下常數：
 const SHEET_ID = '1KJaVcsfmpzEFzv9KbFb5QxD31kl1C8kh_apfp8lgssI'; // Google Sheets ID
 const DRIVE_FOLDER_ID = '1FbNkbnP3OgFqbRoWgs2C100GwSjbRsdi'; // Google Drive 資料夾 ID
-const ADMIN_PASSWORD = 'fk2498505'; // 管理員密碼
+const ADMIN_PASSWORD = 'fk2498505'; // 管理員密碼 (最高權限)
+const SHEET_PWD = '密碼管理';
+const SHEET_LOG = '登入紀錄';
 
 // ============================================================
 // 路由處理
@@ -23,7 +25,7 @@ function doGet(e) {
         return serveImage(e.parameter.fileId);
       case 'verifyAdmin':
         return jsonResponse({
-          success: e.parameter.password === ADMIN_PASSWORD,
+          success: verifyAndLogAdmin(e.parameter.password),
         });
       default:
         return jsonResponse({ error: 'Unknown action' }, 400);
@@ -38,7 +40,7 @@ function doPost(e) {
     const data = JSON.parse(e.postData.contents);
 
     // 管理員操作需要密碼驗證
-    if (data.password !== ADMIN_PASSWORD) {
+    if (!verifyAdminLogic(data.password)) {
       return jsonResponse({ error: '密碼錯誤' }, 401);
     }
 
@@ -49,6 +51,30 @@ function doPost(e) {
         return jsonResponse(updateSample(data));
       case 'delete':
         return jsonResponse(deleteSample(data));
+      case 'getPasswords':
+        if (data.password !== ADMIN_PASSWORD) return jsonResponse({ error: '權限不足' }, 403);
+        const pSheet = getPwdSheet();
+        const pData = pSheet.getDataRange().getValues();
+        const pwds = [];
+        for (let i = 1; i < pData.length; i++) {
+          pwds.push({ pwd: pData[i][0], memo: pData[i][1] });
+        }
+        return jsonResponse({ passwords: pwds });
+      case 'addPassword':
+        if (data.password !== ADMIN_PASSWORD) return jsonResponse({ error: '權限不足' }, 403);
+        getPwdSheet().appendRow([data.newPassword, data.memo || '', new Date().toISOString()]);
+        return jsonResponse({ success: true });
+      case 'deletePassword':
+        if (data.password !== ADMIN_PASSWORD) return jsonResponse({ error: '權限不足' }, 403);
+        const s = getPwdSheet();
+        const sd = s.getDataRange().getValues();
+        for (let i = 1; i < sd.length; i++) {
+          if (String(sd[i][0]) === String(data.targetPassword)) {
+            s.deleteRow(i + 1);
+            return jsonResponse({ success: true });
+          }
+        }
+        return jsonResponse({ error: '找不到密碼' });
       default:
         return jsonResponse({ error: 'Unknown action' }, 400);
     }
@@ -307,6 +333,45 @@ function getSheet() {
   }
 
   return sheet;
+}
+
+function getPwdSheet() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sheet = ss.getSheetByName(SHEET_PWD);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_PWD);
+    sheet.appendRow(['密碼', '備註', '建立時間']);
+  }
+  return sheet;
+}
+
+function getLogSheet() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sheet = ss.getSheetByName(SHEET_LOG);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_LOG);
+    sheet.appendRow(['登入時間', '使用密碼']);
+  }
+  return sheet;
+}
+
+function verifyAdminLogic(password) {
+  if (String(password) === String(ADMIN_PASSWORD)) return true;
+  const sheet = getPwdSheet();
+  const data = sheet.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(password)) return true;
+  }
+  return false;
+}
+
+function verifyAndLogAdmin(password) {
+  const isValid = verifyAdminLogic(password);
+  if (isValid) {
+    const logSheet = getLogSheet();
+    logSheet.appendRow([new Date().toISOString(), password]);
+  }
+  return isValid;
 }
 
 function rowToObject(headers, row) {
