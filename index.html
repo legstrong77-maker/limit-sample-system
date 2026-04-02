@@ -21,6 +21,7 @@
     <div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
       <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
       <img id="lightboxImg" src="" alt="限樣照片" />
+      <video id="lightboxVideo" src="" style="display:none;max-width:95%;max-height:95vh;border-radius:8px;" onclick="event.stopPropagation()"></video>
     </div>
 
     <!-- Modal -->
@@ -72,6 +73,18 @@
             onkeyup="handleSearch(event)"
           />
         </div>
+
+        <!-- 排序列 -->
+        <div class="sort-toolbar">
+          <span class="sort-label">排序：</span>
+          <button class="sort-btn active" id="userSortId" onclick="setUserSort('productId')">
+            品號 <span class="sort-arrow">↑</span>
+          </button>
+          <button class="sort-btn" id="userSortDate" onclick="setUserSort('createdAt')">
+            建立日期 <span class="sort-arrow">↕</span>
+          </button>
+        </div>
+
         <div id="searchResults" class="results-grid">
           <div class="empty-state">
             <div class="empty-icon">📦</div>
@@ -129,6 +142,17 @@
             />
           </div>
 
+          <!-- 排序列 -->
+          <div class="sort-toolbar">
+            <span class="sort-label">排序：</span>
+            <button class="sort-btn active" id="adminSortId" onclick="setAdminSort('productId')">
+              品號 <span class="sort-arrow">↑</span>
+            </button>
+            <button class="sort-btn" id="adminSortDate" onclick="setAdminSort('createdAt')">
+              建立日期 <span class="sort-arrow">↕</span>
+            </button>
+          </div>
+
           <div id="adminResults" class="results-grid">
             <div class="empty-state">
               <div class="empty-icon">⏳</div>
@@ -139,7 +163,7 @@
       </section>
     </div>
 
-    <script src="config.js?v=3"></script>
-    <script src="app.js?v=3"></script>
+    <script src="config.js?v=4"></script>
+    <script src="app.js?v=4"></script>
   </body>
 </html>

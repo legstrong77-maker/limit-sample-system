@@ -409,6 +409,54 @@ body {
 }
 
 /* ============================================================
+   Sort Toolbar
+   ============================================================ */
+.sort-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  margin-top: -16px;
+}
+
+.sort-label {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sort-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.sort-btn.active {
+  border-color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent-primary-hover);
+}
+
+.sort-arrow {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+/* ============================================================
    Image Grid
    ============================================================ */
 .image-grid {
@@ -426,6 +474,43 @@ body {
   background: var(--bg-secondary);
   cursor: pointer;
   transition: transform var(--transition-fast);
+}
+
+/* Video badge overlay */
+.video-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  background: rgba(0,0,0,0.6);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  color: #fff;
+  pointer-events: none;
+  transition: background var(--transition-fast);
+}
+
+.image-item:hover .video-badge {
+  background: rgba(99, 102, 241, 0.8);
+}
+
+/* Video preview thumb (in upload preview / edit modal) */
+.video-preview-thumb {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 2rem;
+  gap: 4px;
 }
 
 .image-item:hover {

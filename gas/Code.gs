@@ -82,7 +82,6 @@ function searchSamples(productId) {
     }
   }
 
-  // 依品號分組
   const grouped = groupByProductId(results);
   return { results: grouped };
 }
@@ -105,25 +104,22 @@ function getAllSamples() {
 }
 
 /**
- * 新建限樣
+ * 新建限樣（支援圖片 + 影片）
  */
 function createSample(data) {
   const sheet = getSheet();
   const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
   const now = new Date().toISOString();
-  const createdRows = [];
 
-  // 處理多張圖片
   const images = data.images || [];
-
   if (images.length === 0) {
-    throw new Error('至少需要一張照片');
+    throw new Error('至少需要一張照片或一支影片');
   }
 
   for (const img of images) {
     const id = Utilities.getUuid();
+    const mediaType = img.mediaType || 'image'; // 'image' | 'video'
 
-    // 將 base64 圖片存到 Drive（保留原始格式）
     const blob = Utilities.newBlob(
       Utilities.base64Decode(img.data),
       img.mimeType,
@@ -135,6 +131,7 @@ function createSample(data) {
       DriveApp.Permission.VIEW
     );
 
+    // 欄位: id, productId, notes, imageFileId, imageName, createdAt, updatedAt, mediaType
     const row = [
       id,
       data.productId,
@@ -143,21 +140,13 @@ function createSample(data) {
       img.fileName,
       now,
       now,
+      mediaType,
     ];
 
     sheet.appendRow(row);
-    createdRows.push({
-      id,
-      productId: data.productId,
-      notes: data.notes || '',
-      imageFileId: file.getId(),
-      imageName: img.fileName,
-      createdAt: now,
-      updatedAt: now,
-    });
   }
 
-  return { success: true, created: createdRows };
+  return { success: true };
 }
 
 /**
@@ -168,7 +157,6 @@ function updateSample(data) {
   const allData = sheet.getDataRange().getValues();
   const now = new Date().toISOString();
 
-  // 找出該品號的所有列
   const targetProductId = data.originalProductId || data.productId;
   const rowIndices = [];
 
@@ -193,14 +181,12 @@ function updateSample(data) {
     sheet.getRange(idx + 1, 7).setValue(now);
   }
 
-  // 處理刪除的圖片
+  // 處理刪除的媒體
   if (data.deletedImageIds && data.deletedImageIds.length > 0) {
-    // 從後往前刪除，避免索引混亂
     const deleteIndices = [];
     for (let i = 1; i < allData.length; i++) {
-      if (data.deletedImageIds.includes(allData[i][0])) {
+      if (data.deletedImageIds.includes(String(allData[i][0]))) {
         deleteIndices.push(i);
-        // 刪除 Drive 上的檔案
         try {
           DriveApp.getFileById(allData[i][3]).setTrashed(true);
         } catch (e) {
@@ -208,18 +194,18 @@ function updateSample(data) {
         }
       }
     }
-    // 從後往前刪除列
     deleteIndices.sort((a, b) => b - a);
     for (const idx of deleteIndices) {
       sheet.deleteRow(idx + 1);
     }
   }
 
-  // 處理新增的圖片
+  // 處理新增的媒體
   if (data.newImages && data.newImages.length > 0) {
     const folder = DriveApp.getFolderById(DRIVE_FOLDER_ID);
     for (const img of data.newImages) {
       const id = Utilities.getUuid();
+      const mediaType = img.mediaType || 'image';
       const blob = Utilities.newBlob(
         Utilities.base64Decode(img.data),
         img.mimeType,
@@ -239,6 +225,7 @@ function updateSample(data) {
         img.fileName,
         now,
         now,
+        mediaType,
       ];
       sheet.appendRow(row);
     }
@@ -258,7 +245,6 @@ function deleteSample(data) {
   for (let i = 1; i < allData.length; i++) {
     if (String(allData[i][1]) === String(data.productId)) {
       deleteIndices.push(i);
-      // 刪除 Drive 上的檔案
       try {
         DriveApp.getFileById(allData[i][3]).setTrashed(true);
       } catch (e) {
@@ -271,7 +257,6 @@ function deleteSample(data) {
     throw new Error('找不到品號: ' + data.productId);
   }
 
-  // 從後往前刪除
   deleteIndices.sort((a, b) => b - a);
   for (const idx of deleteIndices) {
     sheet.deleteRow(idx + 1);
@@ -281,20 +266,16 @@ function deleteSample(data) {
 }
 
 // ============================================================
-// 圖片 Proxy
+// 圖片 Proxy（舊版相容，現在直接用 Drive thumbnail URL）
 // ============================================================
 
-/**
- * 透過 GAS 代理回傳 Drive 上的圖片
- */
 function serveImage(fileId) {
   try {
     const file = DriveApp.getFileById(fileId);
     const blob = file.getBlob();
     return ContentService.createTextOutput(
       Utilities.base64Encode(blob.getBytes())
-    )
-      .setMimeType(ContentService.MimeType.TEXT);
+    ).setMimeType(ContentService.MimeType.TEXT);
   } catch (e) {
     return ContentService.createTextOutput('').setMimeType(
       ContentService.MimeType.TEXT
@@ -312,6 +293,7 @@ function getSheet() {
 
   if (!sheet) {
     sheet = ss.insertSheet('限樣資料');
+    // 加入 mediaType 欄位
     sheet.appendRow([
       'id',
       'productId',
@@ -320,6 +302,7 @@ function getSheet() {
       'imageName',
       'createdAt',
       'updatedAt',
+      'mediaType',
     ]);
   }
 
@@ -349,9 +332,10 @@ function groupByProductId(rows) {
       };
     }
     map[pid].images.push({
-      id: row.id,
+      id: String(row.id),
       fileId: row.imageFileId,
       fileName: row.imageName,
+      mediaType: row.mediaType || 'image', // 舊資料向下相容
     });
     // 取最新的 notes 和更新時間
     if (row.updatedAt > map[pid].updatedAt) {
