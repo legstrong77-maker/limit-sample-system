@@ -16,8 +16,28 @@ const state = {
   editDeletedImageIds: [],
   // 排序設定
   userSort: { by: 'productId', dir: 'asc' },
-  adminSort: { by: 'productId', dir: 'asc' },
 };
+
+let dataLoadPromise = null;
+let isDataLoaded = false;
+
+// ============================================================
+// 全域資料預載 (大幅提升搜尋與切換速度)
+// ============================================================
+async function fetchGlobalData(force = false) {
+  if (isDataLoaded && !force) return state.allSamples;
+  if (!dataLoadPromise || force) {
+    const p = apiGet('getAll').then(res => {
+      state.allSamples = res.results || [];
+      isDataLoaded = true;
+      return state.allSamples;
+    }).finally(() => {
+      if (dataLoadPromise === p) dataLoadPromise = null;
+    });
+    dataLoadPromise = p;
+  }
+  return dataLoadPromise;
+}
 
 // ============================================================
 // 頁面載入：還原管理員登入狀態（sessionStorage）
@@ -43,6 +63,9 @@ const state = {
     // 自動載入名單並切換標籤樣式
     switchMode('admin');
   }
+
+  // 背景預先載入資料，為了讓體驗加速
+  fetchGlobalData();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', applySession);
@@ -180,8 +203,12 @@ function setUserSort(by) {
     state.userSort.dir = 'asc';
   }
   updateSortUI('user');
-  const query = document.getElementById('searchInput').value.trim();
-  if (query) performSearch(query);
+  const query = document.getElementById('searchInput').value.trim().toUpperCase();
+  if (query && isDataLoaded) {
+    const filtered = state.allSamples.filter(s => String(s.productId || '').toUpperCase().includes(query));
+    const sorted = sortSamples(filtered, state.userSort);
+    renderSearchResults(document.getElementById('searchResults'), sorted);
+  }
 }
 
 function setAdminSort(by) {
@@ -238,11 +265,16 @@ function handleSearch(event) {
 
 async function performSearch(query) {
   const container = document.getElementById('searchResults');
-  container.innerHTML = `<div class="empty-state"><div class="loading-spinner">搜尋中...</div></div>`;
+  
+  if (!isDataLoaded) {
+    container.innerHTML = `<div class="empty-state"><div class="loading-spinner">搜尋中...</div></div>`;
+  }
 
   try {
-    const res = await apiGet('search', { productId: query });
-    const sorted = sortSamples(res.results || [], state.userSort);
+    const results = await fetchGlobalData();
+    const queryUpper = query.toUpperCase();
+    const filtered = results.filter(s => String(s.productId || '').toUpperCase().includes(queryUpper));
+    const sorted = sortSamples(filtered, state.userSort);
     renderSearchResults(container, sorted);
   } catch (err) {
     container.innerHTML = `
@@ -274,14 +306,20 @@ function renderSearchResults(container, results) {
 // 管理員 - 載入所有限樣
 // ============================================================
 
-async function loadAllSamples() {
+async function loadAllSamples(forceRefresh = false) {
   const container = document.getElementById('adminResults');
-  container.innerHTML = `<div class="empty-state"><div class="loading-spinner">載入中...</div></div>`;
+  
+  if (!isDataLoaded || forceRefresh) {
+    container.innerHTML = `<div class="empty-state"><div class="loading-spinner">載入中...</div></div>`;
+  }
 
   try {
-    const res = await apiGet('getAll');
-    state.allSamples = res.results || [];
-    renderAdminResults(container, state.allSamples);
+    const results = await fetchGlobalData(forceRefresh);
+    const query = document.getElementById('adminSearchInput').value.trim().toUpperCase();
+    const source = query
+      ? results.filter((s) => String(s.productId || '').toUpperCase().includes(query))
+      : results;
+    renderAdminResults(container, source);
   } catch (err) {
     container.innerHTML = `
       <div class="empty-state">
@@ -852,9 +890,9 @@ async function submitCreate() {
 
     if (res.error) throw new Error(res.error);
 
-    showToast('限樣新增成功', 'success');
+    showToast('限樣建立成功', 'success');
     closeModal();
-    loadAllSamples();
+    loadAllSamples(true); // 強制重新抓取以更新 cache
   } catch (err) {
     showToast('新增失敗：' + err.message, 'error');
   } finally {
@@ -901,7 +939,7 @@ async function submitEdit() {
 
     showToast('限樣更新成功', 'success');
     closeModal();
-    loadAllSamples();
+    loadAllSamples(true); // 強制更新
   } catch (err) {
     showToast('更新失敗：' + err.message, 'error');
   } finally {
@@ -931,7 +969,7 @@ async function submitDelete() {
 
     showToast(`已刪除品號 ${productId} 的限樣`, 'success');
     closeModal();
-    loadAllSamples();
+    loadAllSamples(true);
   } catch (err) {
     showToast('刪除失敗：' + err.message, 'error');
   } finally {
