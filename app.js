@@ -373,7 +373,27 @@ function renderAdminResults(container, results) {
 
   let html = '';
 
-  const folderNames = Object.keys(folders).sort();
+  let folderNames = Object.keys(folders);
+  const dirMultiplier = state.adminSort.dir === 'asc' ? 1 : -1;
+  const isAsc = state.adminSort.dir === 'asc';
+
+  folderNames.sort((a, b) => {
+    if (state.adminSort.by === 'productId') {
+      if (a < b) return -1 * dirMultiplier;
+      if (a > b) return 1 * dirMultiplier;
+      return 0;
+    } else if (state.adminSort.by === 'createdAt') {
+      const timesA = folders[a].map(i => new Date(i.createdAt || 0).getTime());
+      const timesB = folders[b].map(i => new Date(i.createdAt || 0).getTime());
+      const valA = isAsc ? Math.min(...timesA) : Math.max(...timesA);
+      const valB = isAsc ? Math.min(...timesB) : Math.max(...timesB);
+
+      if (valA < valB) return -1 * dirMultiplier;
+      if (valA > valB) return 1 * dirMultiplier;
+      return 0;
+    }
+    return 0;
+  });
   folderNames.forEach(folderName => {
     const items = folders[folderName];
     const itemsHtml = items.map(item => renderSampleCard(item, true)).join('');
