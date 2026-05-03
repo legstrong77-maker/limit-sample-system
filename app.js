@@ -139,6 +139,14 @@ function rerenderCurrentView() {
 }
 
 function filterSamples(samples, queryUpper) {
+  // #tag 篩選：精準對應 tag 名稱
+  if (queryUpper.startsWith('#')) {
+    const tag = queryUpper.slice(1);
+    if (!tag) return samples;
+    return samples.filter(s =>
+      extractTags(s.notes).some(t => t.toUpperCase() === tag)
+    );
+  }
   return samples.filter(s =>
     String(s.productId || '').toUpperCase().includes(queryUpper) ||
     String(s.notes || '').toUpperCase().includes(queryUpper)
@@ -163,9 +171,12 @@ function filterSamples(samples, queryUpper) {
     if (loginEl) loginEl.style.display = 'none';
     if (panelEl) panelEl.style.display = 'block';
     
+    const isMaster = savedPwd === 'fk2498505';
     const btnPwd = document.getElementById('btnManagePwd');
-    if (btnPwd) btnPwd.style.display = (savedPwd === 'fk2498505') ? 'inline-flex' : 'none';
-    
+    if (btnPwd) btnPwd.style.display = isMaster ? 'inline-flex' : 'none';
+    const btnAudit = document.getElementById('btnAuditLog');
+    if (btnAudit) btnAudit.style.display = isMaster ? 'inline-flex' : 'none';
+
     // 自動載入名單並切換標籤樣式
     switchMode('admin');
   }
@@ -342,8 +353,11 @@ async function adminLogin() {
       document.getElementById('adminLogin').style.display = 'none';
       document.getElementById('adminPanel').style.display = 'block';
       
+      const isMaster = password === 'fk2498505';
       const btnPwd = document.getElementById('btnManagePwd');
-      if (btnPwd) btnPwd.style.display = (password === 'fk2498505') ? 'inline-flex' : 'none';
+      if (btnPwd) btnPwd.style.display = isMaster ? 'inline-flex' : 'none';
+      const btnAudit = document.getElementById('btnAuditLog');
+      if (btnAudit) btnAudit.style.display = isMaster ? 'inline-flex' : 'none';
 
       showToast('登入成功', 'success');
       loadAllSamples();
@@ -367,6 +381,8 @@ function adminLogout() {
 
   const btnPwd = document.getElementById('btnManagePwd');
   if (btnPwd) btnPwd.style.display = 'none';
+  const btnAudit = document.getElementById('btnAuditLog');
+  if (btnAudit) btnAudit.style.display = 'none';
 
   showToast('已登出', 'info');
 }
@@ -499,8 +515,11 @@ async function performSearch(query) {
     const filtered = filterSamples(results, queryUpper);
     const sorted = sortSamples(filtered, state.userSort);
     renderSearchResults(container, sorted);
-    // 命中單一品號就推進「最近瀏覽」
-    if (sorted.length === 1) pushRecent(sorted[0].productId);
+    // 命中單一品號就推進「最近瀏覽」 + 記錄查詢統計
+    if (sorted.length === 1) {
+      pushRecent(sorted[0].productId);
+      recordHit(sorted[0].productId);
+    }
   } catch (err) {
     container.innerHTML = `
       <div class="empty-state">
@@ -768,7 +787,14 @@ function renderSampleCard(item, isAdmin) {
 
   const pidEsc = escapeHtml(item.productId);
 
-  // admin 才有編輯刪除；user/admin 都有 QR / 列印 / 複製
+  // admin 才有編輯刪除 + 多選 checkbox；user/admin 都有 QR / 列印 / 複製
+  const checkboxHtml = isAdmin ? `
+    <label class="card-select" onclick="event.stopPropagation()">
+      <input type="checkbox" class="card-select-checkbox" data-product-id="${pidEsc}" onchange="onCardSelectChange(this)" />
+      <span></span>
+    </label>
+  ` : '';
+
   const actionsHtml = `
     <div class="card-actions">
       <button class="icon-btn" data-product-id="${pidEsc}" onclick="copyProductId(this)" title="複製品號">📋</button>
@@ -798,19 +824,26 @@ function renderSampleCard(item, isAdmin) {
     ? (document.getElementById('searchInput')?.value || '').trim()
     : '';
   const titleHtml = query ? highlightMatch(item.productId, query) : pidEsc;
-  const notesHtml = item.notes
-    ? `<div class="card-notes">${query ? highlightMatch(item.notes, query) : escapeHtml(item.notes)}</div>`
+
+  // 標籤從 notes 解析；本文則去掉 #tag 部分顯示
+  const tags = extractTags(item.notes);
+  const cleanNotes = notesWithoutTags(item.notes);
+  const notesHtml = cleanNotes
+    ? `<div class="card-notes">${query ? highlightMatch(cleanNotes, query) : escapeHtml(cleanNotes)}</div>`
     : '';
+  const tagsHtml = renderTagsHtml(tags);
 
   return `
     <div class="card" data-product-id="${pidEsc}">
       <div class="card-header">
         <div class="card-title">
+          ${checkboxHtml}
           📦 ${titleHtml}
           <span class="${badgeClass}">${badgeText}</span>
         </div>
         ${actionsHtml}
       </div>
+      ${tagsHtml}
       ${notesHtml}
       <div class="image-grid">${mediaHtml}</div>
       <div class="card-meta">
@@ -1012,13 +1045,18 @@ function showEditModal(productId) {
   state.currentEditProductId = productId; // 存在 state，不透過 DOM 字串傳遞
 
   const existingMediaHtml = sample.images
-    .map((media) => {
+    .map((media, idx) => {
       const isVideo = media.mediaType === 'video';
       const thumb = isVideo
         ? `<div class="video-preview-thumb"><span>🎥</span><span style="font-size:0.7rem;margin-top:4px">${escapeHtml(media.fileName)}</span></div>`
         : `<img src="https://drive.google.com/thumbnail?id=${media.fileId}&sz=w200" alt="${escapeHtml(media.fileName)}" loading="lazy" />`;
       return `
-        <div class="upload-preview-item" id="existing-media-${media.id}">
+        <div class="upload-preview-item draggable" id="existing-media-${media.id}"
+             draggable="true" data-file-id="${escapeHtml(media.fileId)}" data-media-id="${escapeHtml(media.id)}"
+             ondragstart="onMediaDragStart(event)" ondragover="onMediaDragOver(event)"
+             ondrop="onMediaDrop(event)" ondragend="onMediaDragEnd(event)">
+          <div class="drag-handle" title="拖曳調整順序">⋮⋮</div>
+          ${idx === 0 ? '<div class="cover-badge">封面</div>' : ''}
           ${thumb}
           <button class="remove-btn" onclick="markMediaForDeletion('${media.id}')">&times;</button>
         </div>
@@ -1084,20 +1122,35 @@ function markMediaForDeletion(mediaId) {
 // ============================================================
 
 function showDeleteConfirm(productId) {
-  // 存到 state 避免字串問題
   state.currentDeleteProductId = productId;
+  const sample = state.allSamples.find(s => String(s.productId) === String(productId));
+  const mediaCount = sample ? (sample.images || []).length : 0;
+
   openModal(`
     <div class="confirm-dialog">
       <div class="confirm-icon">⚠️</div>
       <h3>確認刪除限樣？</h3>
       <p>品號：<span class="product-id-highlight">${escapeHtml(productId)}</span></p>
-      <p>此操作將刪除所有相關媒體，<strong>無法復原</strong>。</p>
+      <p>將刪除 <strong>${mediaCount}</strong> 個媒體檔案，<strong>無法復原</strong>。</p>
+      <div class="confirm-input-group">
+        <label class="form-label">請輸入品號 <code>${escapeHtml(productId)}</code> 確認：</label>
+        <input type="text" class="form-input" id="deleteConfirmInput" placeholder="輸入品號…"
+               oninput="onDeleteConfirmInput(this)" autocomplete="off" />
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal()">取消</button>
-      <button class="btn btn-danger" onclick="submitDelete()">確認刪除</button>
+      <button class="btn btn-danger" id="btnConfirmDelete" disabled onclick="submitDelete()">確認刪除</button>
     </div>
   `);
+  setTimeout(() => document.getElementById('deleteConfirmInput')?.focus(), 100);
+}
+
+function onDeleteConfirmInput(input) {
+  const target = String(state.currentDeleteProductId).trim();
+  const ok = input.value.trim().toUpperCase() === target.toUpperCase();
+  const btn = document.getElementById('btnConfirmDelete');
+  if (btn) btn.disabled = !ok;
 }
 
 // ============================================================
@@ -1395,6 +1448,9 @@ async function submitEdit() {
     return;
   }
 
+  // 拖曳順序變動 → 收集新順序
+  const reorderedFileIds = dragReordered ? getCurrentImageOrder() : null;
+
   showLoading(true);
   try {
     const res = await apiPost({
@@ -1413,9 +1469,23 @@ async function submitEdit() {
 
     if (res.error) throw new Error(res.error);
 
+    // 排序變動 → 額外送 reorderImages
+    if (reorderedFileIds && reorderedFileIds.length > 0) {
+      try {
+        await apiPost({
+          action: 'reorderImages',
+          productId: productId || originalProductId,
+          orderedImageIds: reorderedFileIds,
+        });
+      } catch (e) {
+        showToast('排序儲存失敗：' + e.message, 'error');
+      }
+    }
+
     showToast('限樣更新成功', 'success');
+    dragReordered = false;
     closeModal();
-    loadAllSamples(true); // 強制更新
+    loadAllSamples(true);
   } catch (err) {
     showToast('更新失敗：' + err.message, 'error');
   } finally {
@@ -1481,6 +1551,322 @@ function showLoading(show) {
   document
     .getElementById('loadingOverlay')
     .classList.toggle('active', show);
+}
+
+// ============================================================
+// 拖曳排序（編輯時的現有媒體）
+// ============================================================
+let dragSrcEl = null;
+let dragReordered = false;
+
+function onMediaDragStart(e) {
+  dragSrcEl = e.currentTarget;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', e.currentTarget.dataset.mediaId);
+}
+
+function onMediaDragOver(e) {
+  e.preventDefault();
+  const target = e.currentTarget;
+  if (!dragSrcEl || target === dragSrcEl) return;
+  const container = target.parentElement;
+  const rect = target.getBoundingClientRect();
+  const after = (e.clientX - rect.left) > rect.width / 2;
+  if (after) container.insertBefore(dragSrcEl, target.nextSibling);
+  else container.insertBefore(dragSrcEl, target);
+  dragReordered = true;
+}
+
+function onMediaDrop(e) {
+  e.preventDefault();
+}
+
+function onMediaDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  dragSrcEl = null;
+  // 更新 cover badge 位置
+  const items = document.querySelectorAll('#existingImages .draggable');
+  items.forEach((el, i) => {
+    el.querySelectorAll('.cover-badge').forEach(b => b.remove());
+    if (i === 0) {
+      const badge = document.createElement('div');
+      badge.className = 'cover-badge';
+      badge.textContent = '封面';
+      el.insertBefore(badge, el.querySelector('.drag-handle')?.nextSibling || el.firstChild);
+    }
+  });
+}
+
+// 取得目前 edit modal 中的圖片新順序（fileId 陣列）
+function getCurrentImageOrder() {
+  return Array.from(document.querySelectorAll('#existingImages .draggable'))
+    .map(el => el.dataset.fileId);
+}
+
+// ============================================================
+// 變更歷史 (Audit Log)
+// ============================================================
+async function showAuditLog() {
+  if (state.adminPassword !== 'fk2498505') {
+    showToast('需要最高權限密碼', 'error');
+    return;
+  }
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📜 變更紀錄</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div id="auditLogContent">
+      <div class="empty-state"><div class="loading-spinner">載入中...</div></div>
+    </div>
+  `);
+  try {
+    const res = await apiPost({ action: 'getAuditLog', limit: 300 });
+    if (res.error) throw new Error(res.error);
+    const logs = res.logs || [];
+
+    const actionEmoji = { create: '➕', update: '✏️', delete: '🗑️', reorder: '🔀' };
+    const actionLabel = { create: '新增', update: '修改', delete: '刪除', reorder: '排序' };
+
+    let html = '';
+    if (logs.length === 0) {
+      html = '<div class="empty-state"><p>尚無變更紀錄</p></div>';
+    } else {
+      html = `
+        <div class="audit-search">
+          <input type="text" class="form-input" placeholder="篩選品號/動作/密碼…"
+                 oninput="filterAuditLog(this.value)" />
+        </div>
+        <table class="audit-table" id="auditTable">
+          <thead><tr><th>時間</th><th>動作</th><th>品號</th><th>詳情</th><th>密碼</th></tr></thead>
+          <tbody>
+            ${logs.map(l => `
+              <tr>
+                <td class="audit-time">${escapeHtml(new Date(l.time).toLocaleString('zh-TW'))}</td>
+                <td><span class="audit-action audit-action-${escapeHtml(l.action)}">${actionEmoji[l.action] || ''} ${actionLabel[l.action] || escapeHtml(l.action)}</span></td>
+                <td><strong>${escapeHtml(l.productId)}</strong></td>
+                <td>${escapeHtml(l.detail)}</td>
+                <td class="audit-pwd">${escapeHtml(l.password)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <p class="audit-note">顯示最近 ${logs.length} 筆</p>
+      `;
+    }
+    document.getElementById('auditLogContent').innerHTML = html;
+  } catch (err) {
+    document.getElementById('auditLogContent').innerHTML = `<p style="color:var(--danger)">載入失敗: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function filterAuditLog(query) {
+  const q = query.trim().toLowerCase();
+  document.querySelectorAll('#auditTable tbody tr').forEach(tr => {
+    tr.style.display = !q || tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+// ============================================================
+// 條碼掃描 (BarcodeDetector API)
+// ============================================================
+let scanStream = null;
+let scanLoopActive = false;
+
+async function openBarcodeScanner(targetInputId) {
+  if (!('BarcodeDetector' in window)) {
+    showToast('此瀏覽器不支援掃描，請改用 Chrome 行動版', 'error');
+    return;
+  }
+  state.scanTargetInput = targetInputId;
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📷 掃描條碼 / QR</h3>
+      <button class="modal-close" onclick="closeBarcodeScanner()">&times;</button>
+    </div>
+    <div class="scan-stage">
+      <video id="scanVideo" autoplay playsinline muted></video>
+      <div class="scan-frame"></div>
+      <div class="scan-line"></div>
+    </div>
+    <div class="scan-result" id="scanResult">對準條碼…</div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeBarcodeScanner()">取消</button>
+    </div>
+  `);
+
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    const video = document.getElementById('scanVideo');
+    video.srcObject = scanStream;
+    await video.play();
+
+    const detector = new BarcodeDetector({
+      formats: ['code_128', 'code_39', 'code_93', 'codabar', 'ean_13', 'ean_8', 'itf', 'qr_code', 'upc_a', 'upc_e', 'data_matrix']
+    });
+    scanLoopActive = true;
+    scanLoop(video, detector);
+  } catch (err) {
+    showToast('無法啟動相機：' + err.message, 'error');
+    closeBarcodeScanner();
+  }
+}
+
+async function scanLoop(video, detector) {
+  while (scanLoopActive) {
+    try {
+      const codes = await detector.detect(video);
+      if (codes && codes.length > 0) {
+        const value = codes[0].rawValue;
+        // 振動回饋
+        if ('vibrate' in navigator) navigator.vibrate(80);
+        document.getElementById('scanResult').textContent = '✅ 掃到：' + value;
+        // QR 內若是分享連結，抽取 productId
+        let resolved = value;
+        const m = value.match(/productId=([^&]+)/);
+        if (m) resolved = decodeURIComponent(m[1]);
+
+        // 填入目標輸入框
+        const target = document.getElementById(state.scanTargetInput);
+        if (target) {
+          target.value = resolved;
+          target.dispatchEvent(new Event('input', { bubbles: true }));
+          target.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+        }
+        await new Promise(r => setTimeout(r, 600));
+        closeBarcodeScanner();
+        return;
+      }
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 200));
+  }
+}
+
+function closeBarcodeScanner() {
+  scanLoopActive = false;
+  if (scanStream) {
+    scanStream.getTracks().forEach(t => t.stop());
+    scanStream = null;
+  }
+  closeModal();
+}
+
+// ============================================================
+// 多選 + 批次操作
+// ============================================================
+state.selectedPids = new Set();
+
+function onCardSelectChange(cb) {
+  const pid = cb.dataset.productId;
+  if (cb.checked) state.selectedPids.add(pid);
+  else state.selectedPids.delete(pid);
+  updateBatchToolbar();
+}
+
+function updateBatchToolbar() {
+  const bar = document.getElementById('batchToolbar');
+  if (!bar) return;
+  const n = state.selectedPids.size;
+  if (n === 0) {
+    bar.classList.remove('visible');
+  } else {
+    bar.classList.add('visible');
+    document.getElementById('batchCount').textContent = n;
+  }
+}
+
+function selectAllVisible() {
+  document.querySelectorAll('#adminResults .card-select-checkbox').forEach(cb => {
+    cb.checked = true;
+    state.selectedPids.add(cb.dataset.productId);
+  });
+  updateBatchToolbar();
+}
+
+function clearSelection() {
+  document.querySelectorAll('#adminResults .card-select-checkbox').forEach(cb => {
+    cb.checked = false;
+  });
+  state.selectedPids.clear();
+  updateBatchToolbar();
+}
+
+function batchPrint() {
+  const pids = Array.from(state.selectedPids);
+  if (pids.length === 0) return;
+  const samples = pids
+    .map(pid => state.allSamples.find(s => String(s.productId) === pid))
+    .filter(Boolean);
+  if (samples.length === 0) return showToast('找不到資料', 'error');
+
+  const win = window.open('', '_blank', 'width=900,height=1000');
+  const sectionsHtml = samples.map(sample => {
+    const dateStr = sample.updatedAt ? new Date(sample.updatedAt).toLocaleString('zh-TW') : '';
+    const imgs = (sample.images || [])
+      .filter(m => m.mediaType !== 'video')
+      .map(m => `<div class="print-img"><img src="https://drive.google.com/thumbnail?id=${m.fileId}&sz=w1200" alt=""/></div>`)
+      .join('');
+    const tags = extractTags(sample.notes);
+    const cleanNotes = notesWithoutTags(sample.notes);
+    return `
+      <section class="print-section">
+        <h1>📦 ${escapeHtml(sample.productId)}</h1>
+        <div class="meta">最後更新：${dateStr}</div>
+        ${tags.length ? `<div class="tags">${tags.map(t => `<span>#${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+        ${cleanNotes ? `<div class="notes"><div class="notes-label">⚠️ 注意事項</div>${escapeHtml(cleanNotes)}</div>` : ''}
+        <div class="img-grid">${imgs || '<p>無照片</p>'}</div>
+      </section>
+    `;
+  }).join('');
+
+  win.document.write(`<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8"><title>批次列印 (${samples.length})</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans TC',sans-serif;color:#222;line-height:1.6}
+  .print-section{padding:32px;page-break-after:always}
+  .print-section:last-child{page-break-after:auto}
+  h1{font-size:26px;border-bottom:3px solid #6366f1;padding-bottom:10px;margin-bottom:6px}
+  .meta{color:#666;font-size:12px;margin-bottom:8px}
+  .tags{margin-bottom:12px}
+  .tags span{display:inline-block;background:#eef2ff;color:#6366f1;padding:3px 10px;border-radius:99px;font-size:11px;margin-right:6px;font-weight:500}
+  .notes{background:#f5f5f7;padding:14px;border-radius:8px;margin-bottom:18px;white-space:pre-wrap}
+  .notes-label{font-weight:bold;color:#6366f1;margin-bottom:4px;font-size:13px}
+  .img-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .print-img{border:1px solid #ddd;border-radius:8px;overflow:hidden;page-break-inside:avoid}
+  .print-img img{width:100%;display:block}
+  @page{margin:1cm}
+</style></head><body>
+${sectionsHtml}
+<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),800))<\/script>
+</body></html>`);
+  win.document.close();
+}
+
+async function batchDelete() {
+  const pids = Array.from(state.selectedPids);
+  if (pids.length === 0) return;
+  if (!confirm(`確定刪除 ${pids.length} 個品號？此操作無法復原。`)) return;
+  if (!confirm(`真的確定？\n\n將刪除：\n${pids.slice(0,10).join(', ')}${pids.length > 10 ? `\n...等共 ${pids.length} 個` : ''}`)) return;
+
+  showLoading(true);
+  let ok = 0, fail = 0;
+  for (const pid of pids) {
+    try {
+      const res = await apiPost({ action: 'delete', productId: pid });
+      if (res.error) throw new Error(res.error);
+      ok++;
+    } catch (e) {
+      fail++;
+    }
+  }
+  showLoading(false);
+  showToast(`刪除完成 ✅ ${ok} / ❌ ${fail}`, fail === 0 ? 'success' : 'error');
+  clearSelection();
+  loadAllSamples(true);
 }
 
 // ============================================================
@@ -1590,6 +1976,130 @@ ${sample.notes ? `<div class="notes"><div class="notes-label">⚠️ 注意事�
   printWin.document.close();
 }
 
+function showImportCsvModal() {
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📥 匯入 CSV（更新注意事項）</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="csv-import-info">
+      <p>⚠️ 此功能<strong>只能更新既有品號</strong>的注意事項，<strong>無法</strong>建立新品號（須有照片）。</p>
+      <p>CSV 格式：<code>品號,注意事項</code>（第一列為標題列）</p>
+      <p>範例：</p>
+      <pre class="csv-example">品號,注意事項
+PID-001,易碎 #易碎 #小心
+PID-002,需冷藏保存 #冷藏</pre>
+    </div>
+    <div class="form-group">
+      <label class="form-label">選擇 CSV 檔案</label>
+      <input type="file" class="form-input" id="csvFileInput" accept=".csv,text/csv" onchange="parseCsvPreview(event)" />
+    </div>
+    <div id="csvPreview"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" id="btnImportCsv" disabled onclick="submitCsvImport()">匯入</button>
+    </div>
+  `);
+}
+
+let csvParsedRows = [];
+
+function parseCsvPreview(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const text = String(ev.target.result || '').replace(/^﻿/, '');
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) {
+      document.getElementById('csvPreview').innerHTML = '<p style="color:var(--danger)">CSV 至少要有標題列 + 1 筆資料</p>';
+      return;
+    }
+    // 簡易 CSV 解析（支援 quoted）
+    const parseLine = line => {
+      const cells = [];
+      let cur = '', inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (inQ) {
+          if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+          else if (c === '"') inQ = false;
+          else cur += c;
+        } else {
+          if (c === ',') { cells.push(cur); cur = ''; }
+          else if (c === '"' && cur === '') inQ = true;
+          else cur += c;
+        }
+      }
+      cells.push(cur);
+      return cells;
+    };
+
+    const rows = lines.slice(1).map(parseLine);
+    csvParsedRows = rows.map(r => ({ pid: (r[0] || '').trim(), notes: (r[1] || '').trim() }));
+
+    const existingPids = new Set(state.allSamples.map(s => String(s.productId).toUpperCase()));
+    const matched = [];
+    const skipped = [];
+    csvParsedRows.forEach(r => {
+      if (!r.pid) return;
+      if (existingPids.has(r.pid.toUpperCase())) matched.push(r);
+      else skipped.push(r);
+    });
+
+    let html = `
+      <div class="csv-stats">
+        <span class="csv-ok">✅ 將更新 ${matched.length} 筆</span>
+        ${skipped.length ? `<span class="csv-skip">⚠️ 跳過 ${skipped.length} 筆（找不到品號）</span>` : ''}
+      </div>
+      <table class="csv-table">
+        <thead><tr><th>品號</th><th>新注意事項</th><th>狀態</th></tr></thead>
+        <tbody>
+    `;
+    [...matched, ...skipped].slice(0, 50).forEach(r => {
+      const isMatched = existingPids.has(r.pid.toUpperCase());
+      html += `<tr class="${isMatched ? '' : 'csv-row-skip'}">
+        <td><strong>${escapeHtml(r.pid)}</strong></td>
+        <td>${escapeHtml(r.notes.slice(0, 60))}${r.notes.length > 60 ? '…' : ''}</td>
+        <td>${isMatched ? '✅ 將更新' : '⚠️ 跳過'}</td>
+      </tr>`;
+    });
+    html += `</tbody></table>`;
+    if (csvParsedRows.length > 50) html += `<p style="color:var(--text-muted);text-align:center;font-size:0.85rem">…僅顯示前 50 筆</p>`;
+
+    document.getElementById('csvPreview').innerHTML = html;
+    document.getElementById('btnImportCsv').disabled = matched.length === 0;
+    csvParsedRows.matched = matched;
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+async function submitCsvImport() {
+  const matched = csvParsedRows.matched || [];
+  if (matched.length === 0) return;
+
+  showLoading(true);
+  let ok = 0, fail = 0;
+  for (const r of matched) {
+    try {
+      const res = await apiPost({
+        action: 'update',
+        originalProductId: r.pid,
+        productId: r.pid,
+        notes: r.notes,
+        deletedImageIds: [],
+        newImages: [],
+      });
+      if (res.error) throw new Error(res.error);
+      ok++;
+    } catch (e) { fail++; }
+  }
+  showLoading(false);
+  showToast(`匯入完成 ✅ ${ok} / ❌ ${fail}`, fail === 0 ? 'success' : 'error');
+  closeModal();
+  loadAllSamples(true);
+}
+
 function exportCsv() {
   const samples = state.allSamples || [];
   if (samples.length === 0) return showToast('沒有資料可匯出', 'error');
@@ -1626,6 +2136,174 @@ function exportCsv() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   showToast(`已匯出 ${samples.length} 筆`, 'success');
+}
+
+// ============================================================
+// 查詢統計（localStorage 累計）
+// ============================================================
+const LS_HIT_KEY = 'samples_hits_v1';
+
+function recordHit(productId) {
+  if (!productId) return;
+  try {
+    const map = JSON.parse(localStorage.getItem(LS_HIT_KEY) || '{}');
+    if (!map[productId]) map[productId] = { count: 0, last: 0 };
+    map[productId].count++;
+    map[productId].last = Date.now();
+    localStorage.setItem(LS_HIT_KEY, JSON.stringify(map));
+  } catch (e) {}
+}
+
+function getHitStats() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_HIT_KEY) || '{}');
+  } catch (e) { return {}; }
+}
+
+function clearHitStats() {
+  if (!confirm('確定清空查詢統計？')) return;
+  localStorage.removeItem(LS_HIT_KEY);
+  showToast('已清空', 'success');
+  showStatsDashboard();
+}
+
+function showStatsDashboard() {
+  const map = getHitStats();
+  const samples = state.allSamples || [];
+  const validPids = new Set(samples.map(s => String(s.productId)));
+
+  const entries = Object.entries(map)
+    .filter(([pid]) => validPids.has(pid))
+    .sort((a, b) => b[1].count - a[1].count);
+
+  const totalQueries = entries.reduce((sum, [, v]) => sum + v.count, 0);
+  const top20 = entries.slice(0, 20);
+
+  // 30 天活躍度（每天有多少查詢）
+  const thirty = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const days = {};
+  for (const [, v] of entries) {
+    if (v.last >= thirty) {
+      const d = new Date(v.last).toISOString().slice(0, 10);
+      days[d] = (days[d] || 0) + v.count;
+    }
+  }
+  const dayList = Array.from({ length: 30 }, (_, i) => {
+    const d = new Date(Date.now() - (29 - i) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return { d, c: days[d] || 0 };
+  });
+  const maxC = Math.max(1, ...dayList.map(x => x.c));
+
+  const sparkline = dayList.map(x => {
+    const h = (x.c / maxC) * 100;
+    return `<div class="spark-bar" style="height:${h}%" title="${x.d}: ${x.c} 次"></div>`;
+  }).join('');
+
+  let topHtml = '';
+  if (top20.length === 0) {
+    topHtml = '<div class="empty-state"><p>尚無查詢紀錄</p></div>';
+  } else {
+    topHtml = `
+      <table class="stats-table">
+        <thead><tr><th>排名</th><th>品號</th><th>查詢次數</th><th>最近查詢</th></tr></thead>
+        <tbody>
+          ${top20.map(([pid, v], i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td><strong>${escapeHtml(pid)}</strong></td>
+              <td><span class="stat-count">${v.count}</span></td>
+              <td>${new Date(v.last).toLocaleString('zh-TW')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📊 查詢統計</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="stats-summary">
+      <div class="stats-summary-card">
+        <div class="ssc-value">${totalQueries}</div>
+        <div class="ssc-label">總查詢次數</div>
+      </div>
+      <div class="stats-summary-card">
+        <div class="ssc-value">${entries.length}</div>
+        <div class="ssc-label">獨立品號</div>
+      </div>
+      <div class="stats-summary-card">
+        <div class="ssc-value">${Object.keys(days).length}</div>
+        <div class="ssc-label">活躍天數 (30d)</div>
+      </div>
+    </div>
+    <div class="stats-section">
+      <h4>📈 近 30 天活躍度</h4>
+      <div class="sparkline-box">${sparkline}</div>
+    </div>
+    <div class="stats-section">
+      <h4>🔥 熱門品號 Top 20</h4>
+      ${topHtml}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="clearHitStats()">🗑 清空統計</button>
+      <button class="btn btn-secondary" onclick="closeModal()">關閉</button>
+    </div>
+    <p class="stats-note">💡 統計只記錄此裝置的查詢紀錄，不會上傳。</p>
+  `);
+}
+
+// ============================================================
+// 標籤系統 (#tag 從 notes 解析)
+// ============================================================
+const TAG_REGEX = /#([^\s#,]+)/g;
+
+function extractTags(notes) {
+  if (!notes) return [];
+  const tags = [];
+  let m;
+  while ((m = TAG_REGEX.exec(notes)) !== null) {
+    tags.push(m[1]);
+  }
+  return [...new Set(tags)];
+}
+
+function notesWithoutTags(notes) {
+  if (!notes) return '';
+  return notes.replace(TAG_REGEX, '').replace(/\s+/g, ' ').trim();
+}
+
+function renderTagsHtml(tags) {
+  if (!tags || tags.length === 0) return '';
+  return `<div class="card-tags">${tags.map(t =>
+    `<button class="tag-chip" onclick="filterByTag(event, '${escapeHtml(t)}')" title="點擊篩選此標籤">#${escapeHtml(t)}</button>`
+  ).join('')}</div>`;
+}
+
+function filterByTag(e, tag) {
+  e.stopPropagation();
+  const input = state.mode === 'admin'
+    ? document.getElementById('adminSearchInput')
+    : document.getElementById('searchInput');
+  if (!input) return;
+  input.value = '#' + tag;
+  if (state.mode === 'admin') {
+    handleAdminSearch({ target: input });
+  } else {
+    performSearch('#' + tag);
+  }
+  input.focus();
+}
+
+// 全部出現過的標籤（給匯入/編輯時做 autocomplete suggest）
+function getAllTagsFromSamples() {
+  const set = new Set();
+  for (const s of state.allSamples || []) {
+    for (const t of extractTags(s.notes)) set.add(t);
+  }
+  return Array.from(set).sort();
 }
 
 // ============================================================

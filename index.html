@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-title" content="限樣系統" />
     <link rel="manifest" href="manifest.webmanifest" />
     <title>限樣系統</title>
-    <link rel="stylesheet" href="style.css?v=12" />
+    <link rel="stylesheet" href="style.css?v=13" />
   </head>
   <body>
     <!-- Offline banner -->
@@ -114,9 +114,10 @@
             type="text"
             class="search-input"
             id="searchInput"
-            placeholder="輸入品號或注意事項搜尋…（按 / 快速聚焦）"
+            placeholder="輸入品號 / 注意事項 / #標籤搜尋…（按 / 快速聚焦）"
             onkeyup="handleSearch(event)"
           />
+          <button class="search-scan-btn" onclick="openBarcodeScanner('searchInput')" title="掃描條碼">📷</button>
         </div>
 
         <!-- 歡迎面板 (沒搜尋字時顯示) -->
@@ -173,8 +174,17 @@
               <button id="btnManagePwd" class="btn btn-secondary" style="display:none" onclick="showPwdManager()">
                 🔑 密碼管理
               </button>
+              <button id="btnAuditLog" class="btn btn-secondary" style="display:none" onclick="showAuditLog()">
+                📜 變更紀錄
+              </button>
+              <button class="btn btn-secondary" onclick="showStatsDashboard()" title="查詢統計儀表板">
+                📈 統計
+              </button>
               <button class="btn btn-secondary" onclick="exportCsv()" title="匯出全部品號為 CSV">
-                📊 匯出 CSV
+                📊 匯出
+              </button>
+              <button class="btn btn-secondary" onclick="showImportCsvModal()" title="從 CSV 批次更新注意事項">
+                📥 匯入
               </button>
               <button class="btn btn-primary" onclick="showCreateModal()">
                 ➕ 新增限樣
@@ -194,9 +204,19 @@
               type="text"
               class="search-input"
               id="adminSearchInput"
-              placeholder="搜尋品號或注意事項..."
+              placeholder="搜尋品號 / 注意事項 / #標籤..."
               onkeyup="handleAdminSearch(event)"
             />
+            <button class="search-scan-btn" onclick="openBarcodeScanner('adminSearchInput')" title="掃描條碼">📷</button>
+          </div>
+
+          <!-- 批次操作工具列 -->
+          <div id="batchToolbar" class="batch-toolbar">
+            <span class="batch-info">已選 <strong id="batchCount">0</strong> 個品號</span>
+            <button class="btn btn-secondary btn-sm" onclick="selectAllVisible()">全選</button>
+            <button class="btn btn-secondary btn-sm" onclick="clearSelection()">取消選取</button>
+            <button class="btn btn-secondary btn-sm" onclick="batchPrint()">🖨️ 批次列印</button>
+            <button class="btn btn-danger btn-sm" onclick="batchDelete()">🗑️ 批次刪除</button>
           </div>
 
           <!-- 排序列 -->
@@ -222,7 +242,7 @@
 
     <!-- QR Code 產生 (vanilla JS, ~5KB) -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-    <script src="config.js?v=13"></script>
-    <script src="app.js?v=13"></script>
+    <script src="config.js?v=14"></script>
+    <script src="app.js?v=14"></script>
   </body>
 </html>

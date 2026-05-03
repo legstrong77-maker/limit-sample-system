@@ -7,6 +7,7 @@ const DRIVE_FOLDER_ID = '1FbNkbnP3OgFqbRoWgs2C100GwSjbRsdi'; // Google Drive 資
 const ADMIN_PASSWORD = 'fk2498505'; // 管理員密碼 (最高權限)
 const SHEET_PWD = '密碼管理';
 const SHEET_LOG = '登入紀錄';
+const SHEET_AUDIT = '變更紀錄';
 
 // 快取設定
 const CACHE_KEY_ALL = 'all_samples_v2';
@@ -56,6 +57,11 @@ function doPost(e) {
         return jsonResponse(updateSample(data));
       case 'delete':
         return jsonResponse(deleteSample(data));
+      case 'reorderImages':
+        return jsonResponse(reorderImages(data));
+      case 'getAuditLog':
+        if (data.password !== ADMIN_PASSWORD) return jsonResponse({ error: '權限不足' }, 403);
+        return jsonResponse(getAuditLog(data.limit || 200));
       case 'getPasswords':
         if (data.password !== ADMIN_PASSWORD) return jsonResponse({ error: '權限不足' }, 403);
         const pSheet = getPwdSheet();
@@ -258,6 +264,7 @@ function createSample(data) {
   }
 
   invalidateCache();
+  logAudit(data.password, 'create', data.productId, `新增 ${images.length} 個媒體`);
   return { success: true };
 }
 
@@ -344,6 +351,11 @@ function updateSample(data) {
   }
 
   invalidateCache();
+  const detail = [];
+  if (data.productId !== data.originalProductId) detail.push(`改名為 ${data.productId}`);
+  if ((data.deletedImageIds || []).length) detail.push(`刪 ${data.deletedImageIds.length} 媒體`);
+  if ((data.newImages || []).length) detail.push(`新增 ${data.newImages.length} 媒體`);
+  logAudit(data.password, 'update', targetProductId, detail.join(' / ') || '更新注意事項');
   return { success: true };
 }
 
@@ -376,6 +388,7 @@ function deleteSample(data) {
   }
 
   invalidateCache();
+  logAudit(data.password, 'delete', data.productId, `刪除 ${deleteIndices.length} 個媒體`);
   return { success: true, deletedCount: deleteIndices.length };
 }
 
@@ -407,7 +420,6 @@ function getSheet() {
 
   if (!sheet) {
     sheet = ss.insertSheet('限樣資料');
-    // 加入 mediaType 欄位
     sheet.appendRow([
       'id',
       'productId',
@@ -417,10 +429,47 @@ function getSheet() {
       'createdAt',
       'updatedAt',
       'mediaType',
+      'sortOrder',
     ]);
+  } else {
+    // 自動補上 sortOrder 欄（向下相容舊 sheet）
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    if (headers.indexOf('sortOrder') === -1) {
+      sheet.getRange(1, headers.length + 1).setValue('sortOrder');
+    }
   }
 
   return sheet;
+}
+
+/**
+ * 重新排序某品號內的圖片順序
+ * @param {object} data {productId, orderedImageIds: [fileId, fileId, ...]}
+ */
+function reorderImages(data) {
+  const sheet = getSheet();
+  const allData = sheet.getDataRange().getValues();
+  const headers = allData[0];
+  const sortColIdx = headers.indexOf('sortOrder');
+  if (sortColIdx === -1) throw new Error('sortOrder 欄位不存在');
+
+  const orderMap = {};
+  (data.orderedImageIds || []).forEach((fid, i) => { orderMap[String(fid)] = i; });
+
+  let touched = 0;
+  for (let i = 1; i < allData.length; i++) {
+    if (String(allData[i][1]) === String(data.productId)) {
+      const fid = String(allData[i][3]);
+      if (orderMap.hasOwnProperty(fid)) {
+        sheet.getRange(i + 1, sortColIdx + 1).setValue(orderMap[fid]);
+        touched++;
+      }
+    }
+  }
+
+  invalidateCache();
+  logAudit(data.password, 'reorder', data.productId, `重排 ${touched} 媒體`);
+  return { success: true, touched };
 }
 
 function getPwdSheet() {
@@ -441,6 +490,44 @@ function getLogSheet() {
     sheet.appendRow(['登入時間', '使用密碼']);
   }
   return sheet;
+}
+
+function getAuditSheet() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  let sheet = ss.getSheetByName(SHEET_AUDIT);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_AUDIT);
+    sheet.appendRow(['時間', '密碼', '動作', '品號', '詳情']);
+  }
+  return sheet;
+}
+
+function logAudit(password, action, productId, detail) {
+  try {
+    getAuditSheet().appendRow([
+      new Date().toISOString(),
+      password || '',
+      action || '',
+      productId || '',
+      detail || '',
+    ]);
+  } catch (e) {}
+}
+
+function getAuditLog(limit) {
+  const sheet = getAuditSheet();
+  const data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return { logs: [] };
+  const rows = data.slice(1).map(r => ({
+    time: r[0],
+    password: r[1],
+    action: r[2],
+    productId: r[3],
+    detail: r[4],
+  }));
+  // 倒序：最近的在前面
+  rows.reverse();
+  return { logs: rows.slice(0, limit) };
 }
 
 function verifyAdminLogic(password) {
@@ -484,17 +571,29 @@ function groupByProductId(rows) {
         images: [],
       };
     }
+    const sortRaw = row.sortOrder;
+    const sortNum = (sortRaw === '' || sortRaw == null) ? Number.MAX_SAFE_INTEGER : Number(sortRaw);
     map[pid].images.push({
       id: String(row.id),
       fileId: row.imageFileId,
       fileName: row.imageName,
-      mediaType: row.mediaType || 'image', // 舊資料向下相容
+      mediaType: row.mediaType || 'image',
+      _sort: sortNum,
+      _created: row.createdAt,
     });
-    // 取最新的 notes 和更新時間
     if (row.updatedAt > map[pid].updatedAt) {
       map[pid].notes = row.notes;
       map[pid].updatedAt = row.updatedAt;
     }
+  }
+
+  // 依 sortOrder 排序圖片，未設定的依建立時間排在後面
+  for (const pid in map) {
+    map[pid].images.sort((a, b) => {
+      if (a._sort !== b._sort) return a._sort - b._sort;
+      return String(a._created).localeCompare(String(b._created));
+    });
+    map[pid].images.forEach(im => { delete im._sort; delete im._created; });
   }
 
   return Object.values(map);
