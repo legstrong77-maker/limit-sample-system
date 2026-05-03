@@ -56,10 +56,14 @@ function doGet(e) {
 
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents);
+    const raw = (e.postData && e.postData.contents) || '';
+    Logger.log('[doPost] body 前 300 字: ' + raw.slice(0, 300));
+
+    const data = JSON.parse(raw);
 
     // === LINE Webhook 路徑 (沒有 password, 但有 events) ===
     if (data.events && Array.isArray(data.events)) {
+      Logger.log('[doPost] LINE webhook, events=' + data.events.length);
       handleLineWebhook(data);
       // LINE 期望 200 OK
       return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
@@ -752,4 +756,62 @@ function lineReply(replyToken, messages) {
 function initSheet() {
   getSheet();
   Logger.log('Sheet 初始化完成');
+}
+
+// ============================================================
+// LINE 診斷工具 (在 GAS 編輯器選此函式 → 執行 → 看執行紀錄)
+// ============================================================
+
+/** 1. 驗證 token 是否有效 + 抓 Bot 資訊 */
+function debugLineToken() {
+  const token = getLineToken();
+  if (!token) {
+    Logger.log('❌ 沒設 token！請去 專案設定 → 指令碼屬性 設定 LINE_CHANNEL_TOKEN');
+    return;
+  }
+  Logger.log('✅ token 有讀到 (前 20 字): ' + token.slice(0, 20) + '...');
+
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+    headers: { Authorization: 'Bearer ' + token },
+    muteHttpExceptions: true,
+  });
+  Logger.log('LINE API 回應 status: ' + res.getResponseCode());
+  Logger.log('LINE API 回應 body: ' + res.getContentText());
+  // 200 = 成功; 401 = token 無效; 403 = 權限不足
+}
+
+/** 2. 模擬 LINE webhook 進來 (不會真的回給 LINE，只看 GAS 端有沒有錯) */
+function debugSimulateLineMessage() {
+  // 假 event，replyToken 隨意填
+  const fakePayload = {
+    events: [{
+      type: 'message',
+      replyToken: 'FAKE_TOKEN_FOR_DEBUG',
+      message: { type: 'text', text: '請改成你要測的品號' },
+    }]
+  };
+  try {
+    handleLineWebhook(fakePayload);
+    Logger.log('✅ handleLineWebhook 跑完無錯，看上方 log 確認流程');
+  } catch (e) {
+    Logger.log('❌ 執行錯誤: ' + e.message + '\n' + e.stack);
+  }
+}
+
+/** 3. 主動推訊息給自己 (需要 user ID, 從 webhook log 抓) */
+function debugPushTest(userId, text) {
+  const token = getLineToken();
+  if (!token) { Logger.log('沒 token'); return; }
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({
+      to: userId,
+      messages: [{ type: 'text', text: text || '從 GAS 主動推送的測試訊息' }],
+    }),
+    muteHttpExceptions: true,
+  });
+  Logger.log('Push status: ' + res.getResponseCode());
+  Logger.log('Push body: ' + res.getContentText());
 }
