@@ -1207,6 +1207,254 @@ body {
 }
 
 /* ============================================================
+   Welcome Panel (User Mode)
+   ============================================================ */
+.welcome-panel {
+  margin-bottom: 32px;
+  display: none;
+  animation: fadeIn 0.4s ease;
+}
+
+.welcome-hero {
+  background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(167,139,250,0.10));
+  border: 1px solid rgba(99,102,241,0.25);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+.welcome-hero::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  right: -10%;
+  width: 360px;
+  height: 360px;
+  background: radial-gradient(circle, rgba(167,139,250,0.25), transparent 65%);
+  pointer-events: none;
+}
+
+.welcome-greeting h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.welcome-greeting p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.welcome-stats {
+  display: flex;
+  gap: 14px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.welcome-stat {
+  background: rgba(15,17,23,0.5);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px 22px;
+  text-align: center;
+  min-width: 90px;
+  backdrop-filter: blur(6px);
+}
+
+.ws-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.1;
+}
+
+.ws-label {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  margin-top: 4px;
+}
+
+.welcome-section {
+  margin-bottom: 20px;
+}
+
+.welcome-section h3 {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+
+.recent-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.recent-chip:hover {
+  border-color: var(--accent-primary);
+  background: rgba(99,102,241,0.12);
+  transform: translateY(-1px);
+}
+
+.recent-empty {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.welcome-tips {
+  padding: 12px 16px;
+  background: rgba(99,102,241,0.06);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.welcome-tips kbd {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-family: monospace;
+  font-size: 0.85em;
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   Icon button (card actions)
+   ============================================================ */
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.icon-btn:hover {
+  border-color: var(--accent-primary);
+  background: rgba(99,102,241,0.15);
+  color: var(--accent-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* ============================================================
+   QR Code Modal
+   ============================================================ */
+.qr-container {
+  text-align: center;
+  padding: 8px 0;
+}
+
+.qr-svg {
+  background: #fff;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  display: inline-block;
+  margin-bottom: 16px;
+}
+
+.qr-svg svg {
+  width: 240px;
+  height: 240px;
+  display: block;
+}
+
+.qr-pid {
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+
+.qr-url-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.qr-url-row .form-input {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+.qr-tip {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* ============================================================
+   Search highlight
+   ============================================================ */
+mark {
+  background: rgba(245,158,11,0.35);
+  color: var(--text-primary);
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+/* ============================================================
+   Print
+   ============================================================ */
+@media print {
+  body * { visibility: hidden; }
+  .print-only, .print-only * { visibility: visible; }
+}
+
+/* ============================================================
+   Responsive (welcome)
+   ============================================================ */
+@media (max-width: 640px) {
+  .welcome-hero {
+    padding: 20px;
+  }
+  .welcome-stats {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .welcome-stat {
+    flex: 1;
+    padding: 12px 8px;
+    min-width: 0;
+  }
+  .ws-value { font-size: 1.3rem; }
+}
+
+/* ============================================================
    Folder View
    ============================================================ */
 .folder-container {

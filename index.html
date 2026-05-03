@@ -4,8 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="限樣管理系統 - 品質管控的限度樣品查詢與管理平台" />
+    <meta name="theme-color" content="#6366f1" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="限樣系統" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <title>限樣系統</title>
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=11" />
   </head>
   <body>
     <!-- Toast Container -->
@@ -74,6 +78,9 @@
           />
         </div>
 
+        <!-- 歡迎面板 (沒搜尋字時顯示) -->
+        <div id="welcomePanel" class="welcome-panel"></div>
+
         <!-- 排序列 -->
         <div class="sort-toolbar">
           <span class="sort-label">排序：</span>
@@ -125,6 +132,9 @@
               <button id="btnManagePwd" class="btn btn-secondary" style="display:none" onclick="showPwdManager()">
                 🔑 密碼管理
               </button>
+              <button class="btn btn-secondary" onclick="exportCsv()" title="匯出全部品號為 CSV">
+                📊 匯出 CSV
+              </button>
               <button class="btn btn-primary" onclick="showCreateModal()">
                 ➕ 新增限樣
               </button>
@@ -169,7 +179,9 @@
       </section>
     </div>
 
-    <script src="config.js?v=11"></script>
-    <script src="app.js?v=11"></script>
+    <!-- QR Code 產生 (vanilla JS, ~5KB) -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+    <script src="config.js?v=12"></script>
+    <script src="app.js?v=12"></script>
   </body>
 </html>

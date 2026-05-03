@@ -128,10 +128,13 @@ function rerenderCurrentView() {
   } else if (state.mode === 'user') {
     const queryEl = document.getElementById('searchInput');
     const query = (queryEl?.value || '').trim().toUpperCase();
-    if (!query) return;
-    const filtered = filterSamples(state.allSamples, query);
-    const sorted = sortSamples(filtered, state.userSort);
-    renderSearchResults(document.getElementById('searchResults'), sorted);
+    if (query) {
+      const filtered = filterSamples(state.allSamples, query);
+      const sorted = sortSamples(filtered, state.userSort);
+      renderSearchResults(document.getElementById('searchResults'), sorted);
+    } else {
+      renderWelcomePanel();
+    }
   }
 }
 
@@ -186,6 +189,26 @@ function filterSamples(samples, queryUpper) {
   refreshInBackground();
 })();
 
+// 啟動時：渲染歡迎面板 + 處理深連結 + 註冊 service worker
+function bootstrapApp() {
+  // 深連結優先（會自動切到 user 模式並執行搜尋）
+  const handled = applyDeepLink();
+  if (!handled && state.mode === 'user') {
+    renderWelcomePanel();
+  }
+  window.addEventListener('hashchange', applyDeepLink);
+  // 註冊 service worker（PWA）
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', bootstrapApp);
+} else {
+  bootstrapApp();
+}
+
 // ============================================================
 // 模式切換
 // ============================================================
@@ -204,6 +227,9 @@ function switchMode(mode) {
 
   if (mode === 'admin' && state.isAdminLoggedIn) {
     loadAllSamples();
+  } else if (mode === 'user') {
+    const query = (document.getElementById('searchInput')?.value || '').trim();
+    if (!query) renderWelcomePanel();
   }
 }
 
@@ -360,15 +386,14 @@ function handleSearch(event) {
   const query = event.target.value.trim();
 
   if (!query) {
-    document.getElementById('searchResults').innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📦</div>
-        <h3>輸入品號開始搜尋</h3>
-        <p>在上方搜尋欄輸入品號，即可查看對應的限樣資料</p>
-      </div>
-    `;
+    document.getElementById('searchResults').innerHTML = '';
+    renderWelcomePanel();
     return;
   }
+
+  // 一輸入就藏歡迎面板
+  const panel = document.getElementById('welcomePanel');
+  if (panel) panel.style.display = 'none';
 
   searchTimeout = setTimeout(() => performSearch(query), 400);
 }
@@ -386,6 +411,8 @@ async function performSearch(query) {
     const filtered = filterSamples(results, queryUpper);
     const sorted = sortSamples(filtered, state.userSort);
     renderSearchResults(container, sorted);
+    // 命中單一品號就推進「最近瀏覽」
+    if (sorted.length === 1) pushRecent(sorted[0].productId);
   } catch (err) {
     container.innerHTML = `
       <div class="empty-state">
@@ -651,15 +678,20 @@ function renderSampleCard(item, isAdmin) {
     .map((img) => renderMediaItem(img, isAdmin))
     .join('');
 
-  // 用 data-product-id 避免 JS 字串 escaping 問題
-  const actionsHtml = isAdmin
-    ? `
+  const pidEsc = escapeHtml(item.productId);
+
+  // admin 才有編輯刪除；user/admin 都有 QR / 列印 / 複製
+  const actionsHtml = `
     <div class="card-actions">
-      <button class="btn btn-secondary btn-sm" data-product-id="${escapeHtml(item.productId)}" onclick="showEditModalById(this)">✏️ 編輯</button>
-      <button class="btn btn-danger btn-sm" data-product-id="${escapeHtml(item.productId)}" onclick="showDeleteConfirmById(this)">🗑️ 刪除</button>
+      <button class="icon-btn" data-product-id="${pidEsc}" onclick="copyProductId(this)" title="複製品號">📋</button>
+      <button class="icon-btn" data-product-id="${pidEsc}" onclick="showQrModal(this)" title="QR Code 分享">🔗</button>
+      <button class="icon-btn" data-product-id="${pidEsc}" onclick="printSample(this)" title="列印此限樣">🖨️</button>
+      ${isAdmin ? `
+      <button class="btn btn-secondary btn-sm" data-product-id="${pidEsc}" onclick="showEditModalById(this)">✏️ 編輯</button>
+      <button class="btn btn-danger btn-sm" data-product-id="${pidEsc}" onclick="showDeleteConfirmById(this)">🗑️ 刪除</button>
+      ` : ''}
     </div>
-  `
-    : '';
+  `;
 
   const dateStr = item.updatedAt
     ? new Date(item.updatedAt).toLocaleString('zh-TW')
@@ -673,22 +705,44 @@ function renderSampleCard(item, isAdmin) {
   if (!badgeText) badgeText = '⚠️ 無媒體';
   const badgeClass = (imgCount + videoCount) === 0 ? 'card-badge card-badge-warn' : 'card-badge';
 
+  // 搜尋高亮（user 模式有 query 時）
+  const query = state.mode === 'user'
+    ? (document.getElementById('searchInput')?.value || '').trim()
+    : '';
+  const titleHtml = query ? highlightMatch(item.productId, query) : pidEsc;
+  const notesHtml = item.notes
+    ? `<div class="card-notes">${query ? highlightMatch(item.notes, query) : escapeHtml(item.notes)}</div>`
+    : '';
+
   return `
-    <div class="card">
+    <div class="card" data-product-id="${pidEsc}">
       <div class="card-header">
         <div class="card-title">
-          📦 ${escapeHtml(item.productId)}
+          📦 ${titleHtml}
           <span class="${badgeClass}">${badgeText}</span>
         </div>
         ${actionsHtml}
       </div>
-      ${item.notes ? `<div class="card-notes">${escapeHtml(item.notes)}</div>` : ''}
+      ${notesHtml}
       <div class="image-grid">${mediaHtml}</div>
       <div class="card-meta">
         <span>🕐 ${dateStr}</span>
       </div>
     </div>
   `;
+}
+
+// 把 query 在 text 中的 match 包 <mark>
+function highlightMatch(text, query) {
+  if (!text) return '';
+  if (!query) return escapeHtml(text);
+  const escapedText = escapeHtml(text);
+  const escapedQuery = escapeHtml(query).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try {
+    return escapedText.replace(new RegExp(escapedQuery, 'gi'), m => `<mark>${m}</mark>`);
+  } catch (e) {
+    return escapedText;
+  }
 }
 
 // 用 element 的 data-product-id 取得品號，避免字串傳遞問題
@@ -1213,6 +1267,246 @@ function showLoading(show) {
   document
     .getElementById('loadingOverlay')
     .classList.toggle('active', show);
+}
+
+// ============================================================
+// 複製品號 / QR / 列印 / CSV
+// ============================================================
+
+async function copyProductId(btn) {
+  const pid = btn.dataset.productId;
+  try {
+    await navigator.clipboard.writeText(pid);
+    showToast(`已複製 ${pid}`, 'success');
+  } catch (e) {
+    // 回退：建立暫時 textarea
+    const ta = document.createElement('textarea');
+    ta.value = pid;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast(`已複製 ${pid}`, 'success'); }
+    catch (_) { showToast('複製失敗', 'error'); }
+    document.body.removeChild(ta);
+  }
+}
+
+function showQrModal(btn) {
+  const pid = btn.dataset.productId;
+  const url = location.origin + location.pathname + '#productId=' + encodeURIComponent(pid);
+
+  let qrSvg = '';
+  if (typeof qrcode === 'function') {
+    try {
+      const qr = qrcode(0, 'M');
+      qr.addData(url);
+      qr.make();
+      qrSvg = qr.createSvgTag({ scalable: true, margin: 2 });
+    } catch (e) {
+      qrSvg = `<p style="color:var(--danger)">QR 產生失敗：${escapeHtml(e.message)}</p>`;
+    }
+  } else {
+    qrSvg = '<p style="color:var(--text-muted)">QR 產生器尚未載入</p>';
+  }
+
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">🔗 分享品號</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="qr-container">
+      <div class="qr-svg">${qrSvg}</div>
+      <p class="qr-pid">📦 ${escapeHtml(pid)}</p>
+      <div class="qr-url-row">
+        <input type="text" class="form-input" id="qrUrl" value="${escapeHtml(url)}" readonly onclick="this.select()" />
+        <button class="btn btn-secondary" onclick="copyQrUrl()">📋 複製連結</button>
+      </div>
+      <p class="qr-tip">📱 用手機掃描即可直接看到此品號</p>
+    </div>
+  `);
+}
+
+async function copyQrUrl() {
+  const input = document.getElementById('qrUrl');
+  if (!input) return;
+  try {
+    await navigator.clipboard.writeText(input.value);
+    showToast('連結已複製', 'success');
+  } catch (e) {
+    input.select();
+    document.execCommand('copy');
+    showToast('連結已複製', 'success');
+  }
+}
+
+function printSample(btn) {
+  const pid = btn.dataset.productId;
+  const sample = state.allSamples.find(s => String(s.productId) === String(pid));
+  if (!sample) return showToast('找不到此品號', 'error');
+
+  const printWin = window.open('', '_blank', 'width=900,height=1000');
+  const dateStr = sample.updatedAt ? new Date(sample.updatedAt).toLocaleString('zh-TW') : '';
+  const imgs = (sample.images || [])
+    .filter(m => m.mediaType !== 'video')
+    .map(m => `<div class="print-img"><img src="https://drive.google.com/thumbnail?id=${m.fileId}&sz=w1200" alt="${escapeHtml(m.fileName)}" /><div class="print-img-name">${escapeHtml(m.fileName)}</div></div>`)
+    .join('');
+
+  printWin.document.write(`<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8"><title>限樣 - ${escapeHtml(pid)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans TC',sans-serif;padding:32px;color:#222;line-height:1.6}
+  h1{font-size:28px;border-bottom:3px solid #6366f1;padding-bottom:12px;margin-bottom:8px}
+  .meta{color:#666;font-size:13px;margin-bottom:20px}
+  .notes{background:#f5f5f7;padding:16px;border-radius:8px;margin-bottom:24px;white-space:pre-wrap}
+  .notes-label{font-weight:bold;color:#6366f1;margin-bottom:6px}
+  .img-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+  .print-img{border:1px solid #ddd;border-radius:8px;overflow:hidden;page-break-inside:avoid}
+  .print-img img{width:100%;display:block}
+  .print-img-name{padding:8px;font-size:11px;color:#666;background:#fafafa}
+  .footer{margin-top:32px;text-align:center;color:#999;font-size:11px}
+  @media print{body{padding:16px}@page{margin:1cm}}
+</style></head><body>
+<h1>📦 ${escapeHtml(pid)}</h1>
+<div class="meta">最後更新：${dateStr} ｜ 列印日期：${new Date().toLocaleString('zh-TW')}</div>
+${sample.notes ? `<div class="notes"><div class="notes-label">⚠️ 注意事項</div>${escapeHtml(sample.notes)}</div>` : ''}
+<div class="img-grid">${imgs || '<p>無照片</p>'}</div>
+<div class="footer">限樣系統 ${location.origin}</div>
+<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),500))<\/script>
+</body></html>`);
+  printWin.document.close();
+}
+
+function exportCsv() {
+  const samples = state.allSamples || [];
+  if (samples.length === 0) return showToast('沒有資料可匯出', 'error');
+
+  const headers = ['品號', '注意事項', '照片數', '影片數', '建立時間', '最後更新'];
+  const rows = samples.map(s => {
+    const v = (s.images || []).filter(m => m.mediaType === 'video').length;
+    const i = (s.images || []).length - v;
+    return [
+      s.productId || '',
+      (s.notes || '').replace(/\n/g, ' '),
+      i,
+      v,
+      s.createdAt ? new Date(s.createdAt).toLocaleString('zh-TW') : '',
+      s.updatedAt ? new Date(s.updatedAt).toLocaleString('zh-TW') : '',
+    ];
+  });
+
+  // BOM for Excel UTF-8 detection
+  const csv = '﻿' + [headers, ...rows]
+    .map(row => row.map(cell => {
+      const s = String(cell);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(','))
+    .join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `限樣資料_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast(`已匯出 ${samples.length} 筆`, 'success');
+}
+
+// ============================================================
+// 最近瀏覽（localStorage）
+// ============================================================
+const LS_RECENT_KEY = 'samples_recent_v1';
+const RECENT_MAX = 8;
+
+function getRecent() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_RECENT_KEY) || '[]');
+  } catch (e) { return []; }
+}
+
+function pushRecent(productId) {
+  if (!productId) return;
+  const list = getRecent().filter(p => p !== productId);
+  list.unshift(productId);
+  try {
+    localStorage.setItem(LS_RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX)));
+  } catch (e) {}
+}
+
+// ============================================================
+// 歡迎面板（user 模式無搜尋字時顯示）
+// ============================================================
+function renderWelcomePanel() {
+  const panel = document.getElementById('welcomePanel');
+  if (!panel) return;
+
+  const samples = state.allSamples || [];
+  const total = samples.length;
+  let totalMedia = 0;
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let recentNew = 0;
+  for (const s of samples) {
+    totalMedia += (s.images || []).length;
+    if (new Date(s.createdAt || 0).getTime() >= sevenDaysAgo) recentNew++;
+  }
+
+  const recent = getRecent().filter(pid => samples.some(s => String(s.productId) === pid));
+  const recentChips = recent.length
+    ? recent.map(pid => `<button class="recent-chip" onclick="searchByPid('${escapeHtml(pid)}')">📦 ${escapeHtml(pid)}</button>`).join('')
+    : '<span class="recent-empty">尚無瀏覽紀錄</span>';
+
+  panel.innerHTML = `
+    <div class="welcome-hero">
+      <div class="welcome-greeting">
+        <h2>${getGreeting()}，歡迎使用限樣系統 👋</h2>
+        <p>輸入品號開始查詢，或點下方最近瀏覽快速回到品號</p>
+      </div>
+      <div class="welcome-stats">
+        <div class="welcome-stat"><div class="ws-value">${total}</div><div class="ws-label">總品號</div></div>
+        <div class="welcome-stat"><div class="ws-value">${totalMedia}</div><div class="ws-label">總媒體</div></div>
+        <div class="welcome-stat"><div class="ws-value">${recentNew}</div><div class="ws-label">7 日新增</div></div>
+      </div>
+    </div>
+    <div class="welcome-section">
+      <h3>🕒 最近瀏覽</h3>
+      <div class="recent-chips">${recentChips}</div>
+    </div>
+    <div class="welcome-tips">
+      <span>💡 小技巧：按 <kbd>/</kbd> 鍵快速聚焦搜尋框；卡片可<strong>列印</strong>、生成 <strong>QR Code</strong>。</span>
+    </div>
+  `;
+  panel.style.display = 'block';
+}
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 6) return '深夜辛苦';
+  if (h < 12) return '早安';
+  if (h < 18) return '午安';
+  return '晚安';
+}
+
+function searchByPid(pid) {
+  const input = document.getElementById('searchInput');
+  if (!input) return;
+  input.value = pid;
+  performSearch(pid);
+  input.focus();
+}
+
+// ============================================================
+// URL 深連結 (#productId=XX)
+// ============================================================
+function applyDeepLink() {
+  const hash = location.hash || '';
+  const m = hash.match(/productId=([^&]+)/);
+  if (!m) return false;
+  const pid = decodeURIComponent(m[1]);
+  if (state.mode !== 'user') switchMode('user');
+  setTimeout(() => searchByPid(pid), 100);
+  return true;
 }
 
 // ============================================================

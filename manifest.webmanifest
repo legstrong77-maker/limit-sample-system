@@ -1,0 +1,26 @@
+{
+  "name": "限樣系統",
+  "short_name": "限樣",
+  "description": "品質管控的限度樣品查詢與管理平台",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f1117",
+  "theme_color": "#6366f1",
+  "lang": "zh-TW",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='32' fill='%236366f1'/><text x='96' y='130' font-size='110' text-anchor='middle' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji'>📋</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='80' fill='%236366f1'/><text x='256' y='350' font-size='300' text-anchor='middle' font-family='Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji'>📋</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
