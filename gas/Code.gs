@@ -660,16 +660,34 @@ function handleLineWebhook(payload) {
   for (const ev of payload.events) {
     try {
       if (ev.type !== 'message' || ev.message.type !== 'text') continue;
-      const query = String(ev.message.text || '').trim();
-      if (!query) continue;
-      handleLineQuery(ev.replyToken, query);
+      const text = String(ev.message.text || '').trim();
+      if (!text) continue;
+
+      // 判斷訊息來源：1對1 vs 群組/聊天室
+      const sourceType = (ev.source && ev.source.type) || 'user';
+      const isGroup = sourceType === 'group' || sourceType === 'room';
+
+      let query;
+      if (isGroup) {
+        // 群組：必須以 / 開頭才觸發 (例如 /22220108602)
+        if (!text.startsWith('/')) continue;
+        query = text.slice(1).trim();
+        if (!query) continue;
+        Logger.log('[LINE] 群組觸發: ' + query);
+      } else {
+        // 1對1：任何文字都當品號查 (維持原行為)
+        query = text;
+      }
+
+      // 群組找不到時靜默 (silentOnMiss = true)；1對1 維持原行為
+      handleLineQuery(ev.replyToken, query, isGroup);
     } catch (e) {
       Logger.log('LINE event 處理錯誤: ' + e.message);
     }
   }
 }
 
-function handleLineQuery(replyToken, query) {
+function handleLineQuery(replyToken, query, silentOnMiss) {
   // 找品號 (模糊比對, 取第一個命中)
   const sheet = getSheet();
   const data = sheet.getDataRange().getValues();
@@ -688,6 +706,11 @@ function handleLineQuery(replyToken, query) {
   if (!match) {
     const candidates = grouped.filter(s => String(s.productId).toUpperCase().includes(upperQuery));
     if (candidates.length === 0) {
+      // 群組: 找不到不回 (避免噪音); 1對1: 維持原行為
+      if (silentOnMiss) {
+        Logger.log('[LINE] 群組找不到, 靜默');
+        return;
+      }
       lineReply(replyToken, [{
         type: 'text',
         text: `❌ 找不到品號「${query}」\n\n💡 可輸入完整或部分品號搜尋`
@@ -695,7 +718,7 @@ function handleLineQuery(replyToken, query) {
       return;
     }
     if (candidates.length > 1) {
-      // 多個 → 列出讓使用者選
+      // 多個 → 列出讓使用者選 (群組也回, 因為他既然打 / 觸發就是要查)
       const list = candidates.slice(0, 8).map(s => `📦 ${s.productId}`).join('\n');
       const more = candidates.length > 8 ? `\n\n…還有 ${candidates.length - 8} 個` : '';
       lineReply(replyToken, [{
