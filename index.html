@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-title" content="限樣系統" />
     <link rel="manifest" href="manifest.webmanifest" />
     <title>限樣系統</title>
-    <link rel="stylesheet" href="style.css?v=13" />
+    <link rel="stylesheet" href="style.css?v=14" />
   </head>
   <body>
     <!-- Offline banner -->
@@ -33,6 +33,22 @@
       <button id="lightboxAnnotateBtn" class="lightbox-annotate" onclick="event.stopPropagation(); openAnnotator()">✏️ 標註</button>
       <img id="lightboxImg" src="" alt="限樣照片" />
       <video id="lightboxVideo" src="" style="display:none;max-width:95%;max-height:95vh;border-radius:8px;" onclick="event.stopPropagation()"></video>
+    </div>
+
+    <!-- Compare Mode Overlay -->
+    <div class="compare-overlay" id="compareOverlay">
+      <div class="compare-toolbar">
+        <h3>🔄 並排比較</h3>
+        <div class="compare-tools">
+          <label class="compare-toggle">
+            <input type="checkbox" id="compareSyncZoom" checked /> 同步縮放
+          </label>
+          <button class="btn btn-secondary btn-sm" onclick="compareZoomReset()">重置縮放</button>
+          <button class="btn btn-secondary btn-sm" onclick="compareToggleNotes()">📝 顯示注意事項</button>
+          <button class="btn btn-secondary btn-sm" onclick="closeCompareMode()">✖ 關閉</button>
+        </div>
+      </div>
+      <div class="compare-stage" id="compareStage"></div>
     </div>
 
     <!-- Annotator Modal -->
@@ -215,6 +231,7 @@
             <span class="batch-info">已選 <strong id="batchCount">0</strong> 個品號</span>
             <button class="btn btn-secondary btn-sm" onclick="selectAllVisible()">全選</button>
             <button class="btn btn-secondary btn-sm" onclick="clearSelection()">取消選取</button>
+            <button class="btn btn-secondary btn-sm" onclick="openCompareMode()">🔄 並排比較</button>
             <button class="btn btn-secondary btn-sm" onclick="batchPrint()">🖨️ 批次列印</button>
             <button class="btn btn-danger btn-sm" onclick="batchDelete()">🗑️ 批次刪除</button>
           </div>
@@ -242,7 +259,7 @@
 
     <!-- QR Code 產生 (vanilla JS, ~5KB) -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-    <script src="config.js?v=14"></script>
-    <script src="app.js?v=14"></script>
+    <script src="config.js?v=15"></script>
+    <script src="app.js?v=15"></script>
   </body>
 </html>

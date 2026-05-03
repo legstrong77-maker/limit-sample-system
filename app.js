@@ -752,9 +752,7 @@ function toggleFolder(el) {
 
 function renderMediaItem(media, isAdmin) {
   const isVideo = media.mediaType === 'video';
-  const deleteBtn = isAdmin
-    ? '' // 卡片檢視不顯示刪除（在 edit modal 才刪）
-    : '';
+  const isNote = media.mediaType === 'note';
 
   if (isVideo) {
     return `
@@ -770,11 +768,15 @@ function renderMediaItem(media, isAdmin) {
     `;
   }
 
+  const noteCls = isNote ? ' image-item-note' : '';
+  const noteBadge = isNote ? '<div class="note-badge">📝 便條</div>' : '';
+
   return `
-    <div class="image-item" onclick="openLightbox('${media.fileId}', 'image')">
+    <div class="image-item${noteCls}" onclick="openLightbox('${media.fileId}', 'image')">
       <img id="img-${media.fileId}" src="https://drive.google.com/thumbnail?id=${media.fileId}&sz=w400" alt="${escapeHtml(media.fileName)}" style="background: var(--bg-secondary)" loading="lazy" decoding="async" />
+      ${noteBadge}
       <div class="image-overlay">
-        <span class="image-name">${escapeHtml(media.fileName)}</span>
+        <span class="image-name">${isNote ? '📝 ' : ''}${escapeHtml(media.fileName)}</span>
       </div>
     </div>
   `;
@@ -801,6 +803,7 @@ function renderSampleCard(item, isAdmin) {
       <button class="icon-btn" data-product-id="${pidEsc}" onclick="showQrModal(this)" title="QR Code 分享">🔗</button>
       <button class="icon-btn" data-product-id="${pidEsc}" onclick="printSample(this)" title="列印此限樣">🖨️</button>
       ${isAdmin ? `
+      <button class="icon-btn" data-product-id="${pidEsc}" onclick="openHandwriteFor(this)" title="寫手寫便條">📝</button>
       <button class="btn btn-secondary btn-sm" data-product-id="${pidEsc}" onclick="showEditModalById(this)">✏️ 編輯</button>
       <button class="btn btn-danger btn-sm" data-product-id="${pidEsc}" onclick="showDeleteConfirmById(this)">🗑️ 刪除</button>
       ` : ''}
@@ -1846,6 +1849,127 @@ ${sectionsHtml}
   win.document.close();
 }
 
+// ============================================================
+// 並排比較模式
+// ============================================================
+const compareState = {
+  pids: [],
+  currentImageIdx: {}, // pid → 目前顯示第幾張
+  zoom: 1,
+  showNotes: false,
+};
+
+function openCompareMode() {
+  let pids = Array.from(state.selectedPids);
+  if (pids.length < 2) {
+    showToast('請至少選 2 個品號', 'error');
+    return;
+  }
+  if (pids.length > 4) {
+    showToast('最多比較 4 個（已截取前 4 個）', 'info');
+    pids = pids.slice(0, 4);
+  }
+
+  compareState.pids = pids;
+  compareState.currentImageIdx = {};
+  compareState.zoom = 1;
+  compareState.showNotes = false;
+  pids.forEach(p => { compareState.currentImageIdx[p] = 0; });
+
+  document.getElementById('compareOverlay').classList.add('active');
+  document.body.style.overflow = 'hidden';
+  renderCompareStage();
+}
+
+function closeCompareMode() {
+  document.getElementById('compareOverlay').classList.remove('active');
+  document.body.style.overflow = '';
+}
+
+function renderCompareStage() {
+  const stage = document.getElementById('compareStage');
+  const pids = compareState.pids;
+  const cols = pids.length;
+  stage.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+  stage.innerHTML = pids.map(pid => {
+    const sample = state.allSamples.find(s => String(s.productId) === pid);
+    if (!sample) return `<div class="compare-col">找不到 ${escapeHtml(pid)}</div>`;
+    const imgs = (sample.images || []).filter(m => m.mediaType !== 'video');
+    if (imgs.length === 0) {
+      return `
+        <div class="compare-col">
+          <div class="compare-col-header">📦 ${escapeHtml(pid)}</div>
+          <div class="compare-empty">無照片</div>
+        </div>
+      `;
+    }
+    const idx = compareState.currentImageIdx[pid] || 0;
+    const main = imgs[idx];
+    const tags = extractTags(sample.notes);
+    const cleanNotes = notesWithoutTags(sample.notes);
+
+    const thumbs = imgs.map((m, i) => `
+      <button class="compare-thumb ${i === idx ? 'active' : ''}"
+              onclick="compareSelectImage('${escapeHtml(pid)}', ${i})">
+        <img src="https://drive.google.com/thumbnail?id=${m.fileId}&sz=w200" alt="" />
+        ${m.mediaType === 'note' ? '<span class="compare-thumb-note">📝</span>' : ''}
+      </button>
+    `).join('');
+
+    return `
+      <div class="compare-col" data-pid="${escapeHtml(pid)}">
+        <div class="compare-col-header">
+          <span>📦 ${escapeHtml(pid)}</span>
+          <span class="compare-col-info">${idx + 1} / ${imgs.length}</span>
+        </div>
+        ${tags.length ? `<div class="compare-tags">${tags.map(t => `<span>#${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+        <div class="compare-main-img-wrap" onwheel="compareWheelZoom(event)">
+          <img class="compare-main-img" src="https://drive.google.com/thumbnail?id=${main.fileId}&sz=w1200"
+               style="transform: scale(${compareState.zoom})" alt="" />
+          ${main.mediaType === 'note' ? '<div class="compare-note-badge">📝 便條</div>' : ''}
+        </div>
+        ${imgs.length > 1 ? `<div class="compare-thumbs">${thumbs}</div>` : ''}
+        ${compareState.showNotes && cleanNotes ? `<div class="compare-notes">${escapeHtml(cleanNotes)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function compareSelectImage(pid, idx) {
+  compareState.currentImageIdx[pid] = idx;
+  renderCompareStage();
+}
+
+function compareWheelZoom(e) {
+  if (!document.getElementById('compareSyncZoom')?.checked) {
+    // 獨立縮放：只縮這張（不重繪整體）
+    e.preventDefault();
+    const img = e.currentTarget.querySelector('.compare-main-img');
+    const cur = parseFloat(img.style.transform.match(/scale\(([^)]+)\)/)?.[1] || 1);
+    const next = Math.max(0.5, Math.min(4, cur + (e.deltaY < 0 ? 0.15 : -0.15)));
+    img.style.transform = `scale(${next})`;
+    return;
+  }
+  e.preventDefault();
+  compareState.zoom = Math.max(0.5, Math.min(4, compareState.zoom + (e.deltaY < 0 ? 0.15 : -0.15)));
+  document.querySelectorAll('.compare-main-img').forEach(img => {
+    img.style.transform = `scale(${compareState.zoom})`;
+  });
+}
+
+function compareZoomReset() {
+  compareState.zoom = 1;
+  document.querySelectorAll('.compare-main-img').forEach(img => {
+    img.style.transform = 'scale(1)';
+  });
+}
+
+function compareToggleNotes() {
+  compareState.showNotes = !compareState.showNotes;
+  renderCompareStage();
+}
+
 async function batchDelete() {
   const pids = Array.from(state.selectedPids);
   if (pids.length === 0) return;
@@ -2559,6 +2683,60 @@ function openAnnotator() {
   });
 }
 
+// ============================================================
+// 手寫便條 (沿用標註器，底圖換成空白白紙)
+// ============================================================
+function openHandwriteFor(btn) {
+  const productId = btn.dataset.productId;
+  if (!state.isAdminLoggedIn) {
+    showToast('需要管理員權限', 'error');
+    return;
+  }
+
+  ann.strokes = [];
+  ann.current = null;
+  ann.targetProductId = productId;
+  ann.isHandwrite = true;
+
+  // 建立空白白紙當底
+  const w = 1200, h = 1600; // A4 比例直式
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  // 米黃色便條紙
+  ctx.fillStyle = '#fffdf5';
+  ctx.fillRect(0, 0, w, h);
+  // 橫線
+  ctx.strokeStyle = '#e5e1d3';
+  ctx.lineWidth = 1;
+  for (let y = 80; y < h; y += 56) {
+    ctx.beginPath();
+    ctx.moveTo(40, y);
+    ctx.lineTo(w - 40, y);
+    ctx.stroke();
+  }
+  // 標題
+  ctx.fillStyle = '#a78bfa';
+  ctx.font = 'bold 36px "Noto Sans TC", sans-serif';
+  ctx.fillText('📝 ' + productId, 40, 56);
+
+  // 把 canvas 轉 Image 給 ann 用
+  const dataUrl = canvas.toDataURL('image/png');
+  const img = new Image();
+  img.onload = () => {
+    ann.baseImg = img;
+    ann.baseImgLoaded = true;
+
+    const overlay = document.getElementById('annotatorOverlay');
+    overlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    setupAnnCanvas();
+    drawAnn();
+  };
+  img.src = dataUrl;
+}
+
 async function loadImageViaProxy(fileId) {
   // GAS serveImage 回 base64 string
   const url = new URL(CONFIG.API_URL);
@@ -2725,6 +2903,7 @@ function closeAnnotator() {
   ann.current = null;
   ann.baseImg = null;
   ann.tainted = false;
+  ann.isHandwrite = false;
 }
 
 async function saveAnnotation() {
@@ -2751,7 +2930,9 @@ async function saveAnnotation() {
     const dataUrl = reader.result;
     const base64 = dataUrl.split(',')[1];
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const fileName = `標註_${ts}.jpg`;
+    const isNote = ann.isHandwrite;
+    const fileName = isNote ? `便條_${ts}.jpg` : `標註_${ts}.jpg`;
+    const mediaType = isNote ? 'note' : 'image';
 
     showLoading(true);
     try {
@@ -2764,14 +2945,14 @@ async function saveAnnotation() {
         newImages: [{
           fileName,
           mimeType: 'image/jpeg',
-          mediaType: 'image',
+          mediaType,
           data: base64,
         }],
       });
       if (res.error) throw new Error(res.error);
-      showToast('標註已儲存為新照片', 'success');
+      showToast(isNote ? '便條已儲存' : '標註已儲存為新照片', 'success');
       closeAnnotator();
-      closeLightbox();
+      if (!isNote) closeLightbox();
       loadAllSamples(true);
     } catch (e) {
       showToast('上傳失敗：' + e.message, 'error');
@@ -2790,9 +2971,12 @@ window.addEventListener('resize', () => {
   }
 });
 
-// ESC 關閉標註器
+// ESC 關閉標註器 / 比較模式
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && document.getElementById('annotatorOverlay')?.classList.contains('active')) {
+  if (e.key !== 'Escape') return;
+  if (document.getElementById('annotatorOverlay')?.classList.contains('active')) {
     closeAnnotator();
+  } else if (document.getElementById('compareOverlay')?.classList.contains('active')) {
+    closeCompareMode();
   }
 });

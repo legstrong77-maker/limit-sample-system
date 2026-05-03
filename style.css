@@ -1207,6 +1207,217 @@ body {
 }
 
 /* ============================================================
+   Note media (手寫便條) 特殊樣式
+   ============================================================ */
+.image-item-note {
+  border: 2px solid #fbbf24;
+  box-shadow: 0 4px 12px rgba(251,191,36,0.25);
+}
+.image-item-note img {
+  background: #fffdf5 !important;
+  object-fit: contain !important;
+  padding: 4px;
+}
+.note-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #fbbf24;
+  color: #000;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* ============================================================
+   Compare Mode (並排比較)
+   ============================================================ */
+.compare-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  z-index: 2400;
+  display: none;
+  flex-direction: column;
+}
+.compare-overlay.active { display: flex; }
+
+.compare-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.compare-toolbar h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.compare-tools {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.compare-toggle {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.compare-toggle input { cursor: pointer; }
+
+.compare-stage {
+  flex: 1;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  overflow: hidden;
+}
+.compare-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  overflow: hidden;
+  min-width: 0;
+}
+.compare-col-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+.compare-col-info {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+.compare-tags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.compare-tags span {
+  background: rgba(99,102,241,0.15);
+  color: var(--accent-primary-hover);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+}
+.compare-main-img-wrap {
+  flex: 1;
+  position: relative;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-in;
+}
+.compare-main-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 0.15s ease;
+  user-select: none;
+}
+.compare-note-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: #fbbf24;
+  color: #000;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.compare-thumbs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 4px 0;
+}
+.compare-thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  padding: 0;
+  overflow: hidden;
+  transition: all var(--transition-fast);
+}
+.compare-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.compare-thumb:hover { border-color: var(--accent-primary); }
+.compare-thumb.active {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.3);
+}
+.compare-thumb-note {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #fbbf24;
+  border-radius: 2px;
+  font-size: 9px;
+  padding: 0 2px;
+}
+.compare-notes {
+  background: var(--bg-secondary);
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--warning);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.compare-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+  .compare-stage {
+    grid-template-columns: 1fr !important;
+    overflow-y: auto;
+  }
+}
+
+/* ============================================================
    Search scan button (條碼掃描)
    ============================================================ */
 .search-scan-btn {
