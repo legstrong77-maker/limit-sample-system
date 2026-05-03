@@ -9,13 +9,13 @@
     <meta name="apple-mobile-web-app-title" content="限樣系統" />
     <link rel="manifest" href="manifest.webmanifest" />
     <title>限樣系統</title>
-    <link rel="stylesheet" href="style.css?v=14" />
+    <link rel="stylesheet" href="style.css?v=15" />
   </head>
   <body>
     <!-- Offline banner -->
     <div class="offline-banner" id="offlineBanner">
       <span class="offline-dot"></span>
-      <span>離線模式 — 顯示快取資料</span>
+      <span class="offline-msg">離線模式 — 顯示快取資料</span>
     </div>
 
     <!-- Toast Container -->
@@ -30,7 +30,11 @@
     <!-- Lightbox -->
     <div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
       <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
-      <button id="lightboxAnnotateBtn" class="lightbox-annotate" onclick="event.stopPropagation(); openAnnotator()">✏️ 標註</button>
+      <div class="lightbox-tools">
+        <button id="lightboxHistoryBtn" class="lightbox-tool-btn" onclick="event.stopPropagation(); openHistoryTimeline()">📅 歷史</button>
+        <button id="lightboxArBtn" class="lightbox-tool-btn" onclick="event.stopPropagation(); openArOverlay()">📷 AR 對照</button>
+        <button id="lightboxAnnotateBtn" class="lightbox-annotate" onclick="event.stopPropagation(); openAnnotator()">✏️ 標註</button>
+      </div>
       <img id="lightboxImg" src="" alt="限樣照片" />
       <video id="lightboxVideo" src="" style="display:none;max-width:95%;max-height:95vh;border-radius:8px;" onclick="event.stopPropagation()"></video>
     </div>
@@ -90,6 +94,13 @@
       <div class="modal-content" id="modalContent"></div>
     </div>
 
+    <!-- 手機快拍 FAB (admin 才顯示) -->
+    <button id="quickShotFab" class="quick-shot-fab" style="display:none" onclick="openQuickShot()" title="快拍上傳">
+      <span>📸</span>
+    </button>
+    <input type="file" id="quickShotInput" accept="image/*" capture="environment" multiple
+           style="display:none" onchange="onQuickShotFiles(event)" />
+
     <!-- App -->
     <div class="app-container">
       <!-- Header -->
@@ -99,6 +110,7 @@
           <h1>限樣系統</h1>
         </div>
         <div class="header-actions">
+          <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切換主題">🌙</button>
           <div class="mode-tabs">
             <button
               class="mode-tab active"
@@ -196,6 +208,9 @@
               <button class="btn btn-secondary" onclick="showStatsDashboard()" title="查詢統計儀表板">
                 📈 統計
               </button>
+              <button class="btn btn-secondary" onclick="showHeatmapModal()" title="全域熱力圖">
+                🗺️ 熱力圖
+              </button>
               <button class="btn btn-secondary" onclick="exportCsv()" title="匯出全部品號為 CSV">
                 📊 匯出
               </button>
@@ -233,6 +248,7 @@
             <button class="btn btn-secondary btn-sm" onclick="clearSelection()">取消選取</button>
             <button class="btn btn-secondary btn-sm" onclick="openCompareMode()">🔄 並排比較</button>
             <button class="btn btn-secondary btn-sm" onclick="batchPrint()">🖨️ 批次列印</button>
+            <button class="btn btn-secondary btn-sm" onclick="openDeliveryNoteModal()">📋 交付單</button>
             <button class="btn btn-danger btn-sm" onclick="batchDelete()">🗑️ 批次刪除</button>
           </div>
 
@@ -259,7 +275,7 @@
 
     <!-- QR Code 產生 (vanilla JS, ~5KB) -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-    <script src="config.js?v=15"></script>
-    <script src="app.js?v=15"></script>
+    <script src="config.js?v=16"></script>
+    <script src="app.js?v=16"></script>
   </body>
 </html>

@@ -176,6 +176,8 @@ function filterSamples(samples, queryUpper) {
     if (btnPwd) btnPwd.style.display = isMaster ? 'inline-flex' : 'none';
     const btnAudit = document.getElementById('btnAuditLog');
     if (btnAudit) btnAudit.style.display = isMaster ? 'inline-flex' : 'none';
+    const fab = document.getElementById('quickShotFab');
+    if (fab) fab.style.display = 'flex';
 
     // 自動載入名單並切換標籤樣式
     switchMode('admin');
@@ -200,8 +202,40 @@ function filterSamples(samples, queryUpper) {
   refreshInBackground();
 })();
 
+// ============================================================
+// 主題切換
+// ============================================================
+const LS_THEME_KEY = 'theme_pref_v1';
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  const btn = document.getElementById('themeToggle');
+  if (btn) btn.textContent = theme === 'light' ? '🌙' : '☀️';
+  try { localStorage.setItem(LS_THEME_KEY, theme); } catch (e) {}
+}
+
+function toggleTheme() {
+  const cur = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  applyTheme(cur === 'light' ? 'dark' : 'light');
+}
+
+(function initTheme() {
+  let pref;
+  try { pref = localStorage.getItem(LS_THEME_KEY); } catch (e) {}
+  if (!pref) pref = 'dark';
+  // 在 DOMContentLoaded 之前先設 dataset，避免閃爍
+  document.documentElement.dataset.theme = pref;
+})();
+
 // 啟動時：渲染歡迎面板 + 處理深連結 + 註冊 service worker
 function bootstrapApp() {
+  // 套用主題到 button
+  const btn = document.getElementById('themeToggle');
+  if (btn) {
+    const cur = document.documentElement.dataset.theme || 'dark';
+    btn.textContent = cur === 'light' ? '🌙' : '☀️';
+  }
+
   // 深連結優先（會自動切到 user 模式並執行搜尋）
   const handled = applyDeepLink();
   if (!handled && state.mode === 'user') {
@@ -235,13 +269,18 @@ function setupOfflineBanner() {
   window.addEventListener('online', () => {
     update();
     showToast('已恢復連線', 'success');
-    refreshInBackground();
+    flushQueue().then(() => refreshInBackground());
   });
   window.addEventListener('offline', () => {
     update();
     showToast('已切換到離線模式', 'info');
   });
   update();
+  updateOfflineBannerCount();
+  // 啟動時若有待送的，且現在 online → 自動送
+  if (navigator.onLine && getQueueCount() > 0) {
+    flushQueue();
+  }
 }
 
 // ============================================================
@@ -358,6 +397,8 @@ async function adminLogin() {
       if (btnPwd) btnPwd.style.display = isMaster ? 'inline-flex' : 'none';
       const btnAudit = document.getElementById('btnAuditLog');
       if (btnAudit) btnAudit.style.display = isMaster ? 'inline-flex' : 'none';
+      const fab = document.getElementById('quickShotFab');
+      if (fab) fab.style.display = 'flex';
 
       showToast('登入成功', 'success');
       loadAllSamples();
@@ -383,6 +424,8 @@ function adminLogout() {
   if (btnPwd) btnPwd.style.display = 'none';
   const btnAudit = document.getElementById('btnAuditLog');
   if (btnAudit) btnAudit.style.display = 'none';
+  const fab = document.getElementById('quickShotFab');
+  if (fab) fab.style.display = 'none';
 
   showToast('已登出', 'info');
 }
@@ -404,6 +447,13 @@ async function apiGet(action, params = {}) {
 }
 
 async function apiPost(data) {
+  // 離線時：寫入 mutation queue 之後再回放
+  if (!navigator.onLine) {
+    enqueueMutation(data);
+    showToast('📡 離線中：已加入佇列，連線後自動送出', 'info');
+    // 假裝成功讓 UI 流程不卡
+    return { success: true, queued: true };
+  }
   const res = await fetch(CONFIG.API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain' },
@@ -411,6 +461,74 @@ async function apiPost(data) {
   });
   if (!res.ok) throw new Error('HTTP ' + res.status);
   return res.json();
+}
+
+// ============================================================
+// 離線編輯佇列 (mutation queue)
+// ============================================================
+const LS_QUEUE_KEY = 'mutation_queue_v1';
+
+function enqueueMutation(data) {
+  try {
+    const q = JSON.parse(localStorage.getItem(LS_QUEUE_KEY) || '[]');
+    q.push({
+      ts: Date.now(),
+      data: { ...data, password: state.adminPassword },
+    });
+    localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(q));
+    updateOfflineBannerCount();
+  } catch (e) {}
+}
+
+function getQueueCount() {
+  try {
+    return JSON.parse(localStorage.getItem(LS_QUEUE_KEY) || '[]').length;
+  } catch (e) { return 0; }
+}
+
+async function flushQueue() {
+  let q;
+  try {
+    q = JSON.parse(localStorage.getItem(LS_QUEUE_KEY) || '[]');
+  } catch (e) { return; }
+  if (q.length === 0) return;
+
+  showToast(`📤 連線恢復，送出 ${q.length} 筆排隊操作…`, 'info');
+  let ok = 0, fail = 0;
+  const remaining = [];
+  for (const item of q) {
+    try {
+      const res = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(item.data),
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      ok++;
+    } catch (e) {
+      fail++;
+      remaining.push(item);
+    }
+  }
+  localStorage.setItem(LS_QUEUE_KEY, JSON.stringify(remaining));
+  updateOfflineBannerCount();
+  if (fail === 0) showToast(`✅ 全部 ${ok} 筆送出成功`, 'success');
+  else showToast(`⚠️ ${ok} 成功 / ${fail} 失敗（已保留重試）`, 'error');
+  if (ok > 0) loadAllSamples(true);
+}
+
+function updateOfflineBannerCount() {
+  const banner = document.getElementById('offlineBanner');
+  if (!banner) return;
+  const n = getQueueCount();
+  const span = banner.querySelector('.offline-msg') || banner.querySelectorAll('span')[1];
+  if (span) {
+    span.textContent = navigator.onLine
+      ? (n > 0 ? `已重連，${n} 筆等待送出…` : '')
+      : `離線模式 — 顯示快取資料${n > 0 ? ` · ${n} 筆操作已排隊` : ''}`;
+  }
 }
 
 // ============================================================
@@ -680,8 +798,9 @@ function renderAdminStats() {
 
   const samples = state.allSamples || [];
   const totalProducts = samples.length;
-  let totalImages = 0, totalVideos = 0, emptyCount = 0;
+  let totalImages = 0, totalVideos = 0, emptyCount = 0, expiringSoon = 0, expired = 0;
   const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
   let recentCount = 0;
 
   for (const s of samples) {
@@ -693,6 +812,12 @@ function renderAdminStats() {
     }
     const t = new Date(s.createdAt || 0).getTime();
     if (t >= sevenDaysAgo) recentCount++;
+    if (s.expiresAt) {
+      const exp = new Date(s.expiresAt).getTime();
+      const days = (exp - now) / 86400000;
+      if (days < 0) expired++;
+      else if (days <= 30) expiringSoon++;
+    }
   }
 
   container.innerHTML = `
@@ -723,6 +848,22 @@ function renderAdminStats() {
       <div class="stat-body">
         <div class="stat-value">${emptyCount}</div>
         <div class="stat-label">無媒體品號</div>
+      </div>
+    </div>` : ''}
+    ${expiringSoon > 0 ? `
+    <div class="stat-card stat-warning">
+      <div class="stat-icon">⏰</div>
+      <div class="stat-body">
+        <div class="stat-value">${expiringSoon}</div>
+        <div class="stat-label">30 天內到期</div>
+      </div>
+    </div>` : ''}
+    ${expired > 0 ? `
+    <div class="stat-card stat-danger">
+      <div class="stat-icon">🔴</div>
+      <div class="stat-body">
+        <div class="stat-value">${expired}</div>
+        <div class="stat-label">已過期</div>
       </div>
     </div>` : ''}
   `;
@@ -822,6 +963,21 @@ function renderSampleCard(item, isAdmin) {
   if (!badgeText) badgeText = '⚠️ 無媒體';
   const badgeClass = (imgCount + videoCount) === 0 ? 'card-badge card-badge-warn' : 'card-badge';
 
+  // 到期徽章
+  let expiryBadge = '';
+  if (item.expiresAt) {
+    const expTime = new Date(item.expiresAt).getTime();
+    const now = Date.now();
+    const days = Math.ceil((expTime - now) / 86400000);
+    if (days < 0) {
+      expiryBadge = `<span class="card-badge card-badge-danger" title="${escapeHtml(item.expiresAt)}">⏰ 已過期 ${-days} 天</span>`;
+    } else if (days <= 30) {
+      expiryBadge = `<span class="card-badge card-badge-warn" title="${escapeHtml(item.expiresAt)}">⏰ ${days} 天後到期</span>`;
+    } else {
+      expiryBadge = `<span class="card-badge" style="opacity:0.7" title="${escapeHtml(item.expiresAt)}">⏰ ${escapeHtml(String(item.expiresAt).slice(0,10))}</span>`;
+    }
+  }
+
   // 搜尋高亮（user 模式有 query 時）
   const query = state.mode === 'user'
     ? (document.getElementById('searchInput')?.value || '').trim()
@@ -843,6 +999,7 @@ function renderSampleCard(item, isAdmin) {
           ${checkboxHtml}
           📦 ${titleHtml}
           <span class="${badgeClass}">${badgeText}</span>
+          ${expiryBadge}
         </div>
         ${actionsHtml}
       </div>
@@ -999,7 +1156,10 @@ function showCreateModal() {
 
     <div class="form-group">
       <label class="form-label">注意事項</label>
-      <textarea class="form-textarea" id="createNotes" placeholder="輸入品質注意事項..."></textarea>
+      <div style="position:relative">
+        <textarea class="form-textarea" id="createNotes" placeholder="輸入品質注意事項… 可加 #標籤"></textarea>
+        <button class="mic-btn" onclick="toggleVoiceInput('createNotes', this)" title="語音輸入">🎤</button>
+      </div>
     </div>
 
     <div class="form-group">
@@ -1080,7 +1240,15 @@ function showEditModal(productId) {
 
     <div class="form-group">
       <label class="form-label">注意事項</label>
-      <textarea class="form-textarea" id="editNotes">${escapeHtml(sample.notes || '')}</textarea>
+      <div style="position:relative">
+        <textarea class="form-textarea" id="editNotes">${escapeHtml(sample.notes || '')}</textarea>
+        <button class="mic-btn" onclick="toggleVoiceInput('editNotes', this)" title="語音輸入">🎤</button>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">到期日（可空，到期前 30 天會標紅）</label>
+      <input type="date" class="form-input" id="editExpiresAt" value="${escapeHtml((sample.expiresAt || '').slice(0,10))}" />
     </div>
 
     <div class="form-group">
@@ -1456,11 +1624,13 @@ async function submitEdit() {
 
   showLoading(true);
   try {
+    const expiresAt = document.getElementById('editExpiresAt')?.value || '';
     const res = await apiPost({
       action: 'update',
       originalProductId,
       productId,
       notes,
+      expiresAt,
       deletedImageIds: state.editDeletedImageIds || [],
       newImages: state.pendingFiles.map((f) => ({
         fileName: f.fileName,
@@ -1557,6 +1727,160 @@ function showLoading(show) {
 }
 
 // ============================================================
+// 語音輸入（Web Speech API）
+// ============================================================
+let voiceRecognizer = null;
+let voiceTargetId = null;
+let voiceBaseText = '';
+
+function toggleVoiceInput(targetId, btn) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    showToast('此瀏覽器不支援語音輸入（建議用 Chrome）', 'error');
+    return;
+  }
+
+  // 已在錄 → 停止
+  if (voiceRecognizer && voiceTargetId === targetId) {
+    voiceRecognizer.stop();
+    return;
+  }
+  if (voiceRecognizer) voiceRecognizer.stop();
+
+  voiceTargetId = targetId;
+  const target = document.getElementById(targetId);
+  if (!target) return;
+  voiceBaseText = target.value;
+
+  voiceRecognizer = new SR();
+  voiceRecognizer.lang = 'zh-TW';
+  voiceRecognizer.interimResults = true;
+  voiceRecognizer.continuous = true;
+
+  btn.classList.add('recording');
+  btn.textContent = '⏹';
+
+  voiceRecognizer.onresult = e => {
+    let final = '', interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) final += t;
+      else interim += t;
+    }
+    if (final) voiceBaseText = (voiceBaseText ? voiceBaseText + ' ' : '') + final;
+    target.value = voiceBaseText + (interim ? ' ' + interim : '');
+  };
+  voiceRecognizer.onerror = ev => {
+    showToast('語音錯誤：' + ev.error, 'error');
+    stopVoice(btn);
+  };
+  voiceRecognizer.onend = () => stopVoice(btn);
+
+  try {
+    voiceRecognizer.start();
+    showToast('🎤 開始錄音…再點一次停止', 'info');
+  } catch (e) {
+    stopVoice(btn);
+  }
+}
+
+function stopVoice(btn) {
+  if (btn) {
+    btn.classList.remove('recording');
+    btn.textContent = '🎤';
+  }
+  voiceRecognizer = null;
+  voiceTargetId = null;
+}
+
+// ============================================================
+// 手機快拍上傳（FAB）
+// ============================================================
+function openQuickShot() {
+  document.getElementById('quickShotInput').click();
+}
+
+function onQuickShotFiles(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (files.length === 0) return;
+  state.pendingFiles = [];
+  // 先讀檔 + 壓縮（沿用既有 addFiles 邏輯）
+  addFiles(files);
+  // 等壓縮完開出簡化的 modal
+  const wait = setInterval(() => {
+    if (state.pendingFiles.length === files.length) {
+      clearInterval(wait);
+      showQuickShotModal();
+    }
+  }, 100);
+  setTimeout(() => clearInterval(wait), 8000); // 安全
+}
+
+function showQuickShotModal() {
+  const previewHtml = state.pendingFiles.map(f =>
+    `<div class="upload-preview-item"><img src="${f.dataUrl}" alt="" /></div>`
+  ).join('');
+
+  // 推薦最近建立的品號 (從 hit stats)
+  const allTags = getAllTagsFromSamples();
+  const tagSuggest = allTags.slice(0, 8).map(t =>
+    `<button class="tag-chip" onclick="appendTagToQuickNotes('${escapeHtml(t)}')">#${escapeHtml(t)}</button>`
+  ).join('');
+
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📸 快拍上傳</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="quick-preview">${previewHtml}</div>
+    <div class="form-group">
+      <label class="form-label">品號 *</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" class="form-input" id="quickProductId" placeholder="輸入品號…" autofocus />
+        <button class="icon-btn" onclick="openBarcodeScanner('quickProductId')" title="掃條碼">📷</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">注意事項（可空）</label>
+      <div style="position:relative">
+        <textarea class="form-textarea" id="quickNotes" placeholder="可寫 #標籤 或一般文字…"></textarea>
+        <button class="mic-btn" onclick="toggleVoiceInput('quickNotes', this)" title="語音輸入">🎤</button>
+      </div>
+      ${tagSuggest ? `<div class="tag-suggest" style="margin-top:6px">${tagSuggest}</div>` : ''}
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="submitQuickShot()">⚡ 立即建立</button>
+    </div>
+  `);
+}
+
+function appendTagToQuickNotes(tag) {
+  const ta = document.getElementById('quickNotes');
+  if (!ta) return;
+  ta.value = (ta.value ? ta.value + ' ' : '') + '#' + tag;
+  ta.focus();
+}
+
+async function submitQuickShot() {
+  const productId = document.getElementById('quickProductId').value.trim();
+  const notes = document.getElementById('quickNotes').value.trim();
+  if (!productId) return showToast('請輸入品號', 'error');
+  if (state.pendingFiles.length === 0) return showToast('沒有照片', 'error');
+
+  // 重複檢查
+  const existing = state.allSamples.find(
+    s => String(s.productId).toUpperCase() === productId.toUpperCase()
+  );
+  if (existing) {
+    showDuplicateModal(existing, productId, notes);
+    return;
+  }
+  await doCreateSample(productId, notes);
+}
+
+// ============================================================
 // 拖曳排序（編輯時的現有媒體）
 // ============================================================
 let dragSrcEl = null;
@@ -1605,6 +1929,189 @@ function onMediaDragEnd(e) {
 function getCurrentImageOrder() {
   return Array.from(document.querySelectorAll('#existingImages .draggable'))
     .map(el => el.dataset.fileId);
+}
+
+// ============================================================
+// 二維熱力圖（時間 × 群組 × 熱度）
+// ============================================================
+function showHeatmapModal() {
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">🗺️ 全域熱力圖</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <p class="heatmap-tip">每個泡泡 = 一個品號。
+      <strong>X 軸</strong> = 建立時間；
+      <strong>Y 軸</strong> = 品號群組（前綴）；
+      <strong>大小</strong> = 媒體數；
+      <strong>顏色</strong> = 查詢熱度 (本機統計)。
+      Hover 看詳情，點即查詢。
+    </p>
+    <canvas id="heatmapCanvas" width="900" height="500" style="width:100%;background:var(--bg-secondary);border-radius:8px;cursor:crosshair"></canvas>
+    <div id="heatmapTooltip" class="heatmap-tooltip" style="display:none"></div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">關閉</button>
+    </div>
+  `);
+  setTimeout(drawHeatmap, 50);
+}
+
+let heatmapPoints = [];
+
+function drawHeatmap() {
+  const canvas = document.getElementById('heatmapCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const samples = state.allSamples || [];
+  if (samples.length === 0) {
+    ctx.fillStyle = '#666';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('尚無資料', W / 2, H / 2);
+    return;
+  }
+
+  // X: createdAt timestamp
+  const times = samples.map(s => new Date(s.createdAt || 0).getTime()).filter(t => t > 0);
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  const tRange = Math.max(1, tMax - tMin);
+
+  // Y: 品號前 5 字 group (sub(2,7))
+  const groups = new Map();
+  for (const s of samples) {
+    const pid = String(s.productId || '');
+    const g = pid.length >= 7 ? pid.substring(2, 7) : '其他';
+    if (!groups.has(g)) groups.set(g, groups.size);
+  }
+  const groupCount = Math.max(1, groups.size);
+
+  // 顏色：依 hit count
+  const hits = getHitStats();
+  const hitVals = samples.map(s => hits[s.productId]?.count || 0);
+  const maxHit = Math.max(1, ...hitVals);
+
+  // 大小: 媒體數
+  const mediaCounts = samples.map(s => (s.images || []).length);
+  const maxMedia = Math.max(1, ...mediaCounts);
+
+  // 邊距
+  const PL = 80, PR = 20, PT = 20, PB = 50;
+  const plotW = W - PL - PR;
+  const plotH = H - PT - PB;
+
+  // 畫坐標軸
+  ctx.strokeStyle = '#444';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PL, PT);
+  ctx.lineTo(PL, H - PB);
+  ctx.lineTo(W - PR, H - PB);
+  ctx.stroke();
+
+  // X 軸標籤（5 個刻度）
+  ctx.fillStyle = '#888';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  for (let i = 0; i <= 5; i++) {
+    const t = tMin + (tRange * i / 5);
+    const x = PL + (plotW * i / 5);
+    ctx.fillText(new Date(t).toISOString().slice(0, 7), x, H - PB + 16);
+    ctx.beginPath();
+    ctx.moveTo(x, H - PB);
+    ctx.lineTo(x, H - PB + 4);
+    ctx.stroke();
+  }
+
+  // Y 軸標籤（每個 group）
+  ctx.textAlign = 'right';
+  const sortedGroups = Array.from(groups.keys()).sort();
+  sortedGroups.forEach((g, i) => {
+    const idx = groups.get(g);
+    const y = PT + (plotH * (idx + 0.5) / groupCount);
+    ctx.fillText(g, PL - 8, y + 4);
+  });
+
+  // 畫泡泡
+  heatmapPoints = [];
+  for (const s of samples) {
+    const t = new Date(s.createdAt || 0).getTime();
+    if (!t) continue;
+    const pid = String(s.productId || '');
+    const g = pid.length >= 7 ? pid.substring(2, 7) : '其他';
+    const gIdx = groups.get(g);
+
+    const x = PL + (plotW * (t - tMin) / tRange);
+    const y = PT + (plotH * (gIdx + 0.5) / groupCount);
+    const mediaN = (s.images || []).length;
+    const r = 4 + (mediaN / maxMedia) * 18;
+    const hit = hits[s.productId]?.count || 0;
+    const heatRatio = hit / maxHit;
+
+    // 紫 → 粉紅 → 黃 漸層
+    const color = `hsl(${260 - heatRatio * 220}, 80%, ${50 + heatRatio * 15}%)`;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    heatmapPoints.push({ x, y, r, sample: s, hit, group: g });
+  }
+
+  canvas.onmousemove = onHeatmapHover;
+  canvas.onmouseleave = () => { document.getElementById('heatmapTooltip').style.display = 'none'; };
+  canvas.onclick = onHeatmapClick;
+}
+
+function onHeatmapHover(e) {
+  const canvas = e.currentTarget;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+
+  let hit = null;
+  for (const p of heatmapPoints) {
+    const dx = mx - p.x, dy = my - p.y;
+    if (dx * dx + dy * dy <= p.r * p.r) { hit = p; break; }
+  }
+
+  const tip = document.getElementById('heatmapTooltip');
+  if (!hit) { tip.style.display = 'none'; return; }
+  tip.style.display = 'block';
+  tip.style.left = (e.clientX + 12) + 'px';
+  tip.style.top = (e.clientY + 12) + 'px';
+  const s = hit.sample;
+  tip.innerHTML = `
+    <div><strong>📦 ${escapeHtml(s.productId)}</strong></div>
+    <div style="color:#aaa">群組: ${escapeHtml(hit.group)}</div>
+    <div style="color:#aaa">建立: ${new Date(s.createdAt).toLocaleDateString('zh-TW')}</div>
+    <div style="color:#aaa">媒體: ${(s.images || []).length}</div>
+    <div style="color:#aaa">查詢: ${hit.hit} 次</div>
+  `;
+}
+
+function onHeatmapClick(e) {
+  const canvas = e.currentTarget;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (e.clientX - rect.left) * scaleX;
+  const my = (e.clientY - rect.top) * scaleY;
+  for (const p of heatmapPoints) {
+    const dx = mx - p.x, dy = my - p.y;
+    if (dx * dx + dy * dy <= p.r * p.r) {
+      closeModal();
+      switchMode('user');
+      setTimeout(() => searchByPid(p.sample.productId), 100);
+      return;
+    }
+  }
 }
 
 // ============================================================
@@ -1847,6 +2354,277 @@ ${sectionsHtml}
 <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),800))<\/script>
 </body></html>`);
   win.document.close();
+}
+
+// ============================================================
+// 限樣交付單
+// ============================================================
+function openDeliveryNoteModal() {
+  const pids = Array.from(state.selectedPids);
+  if (pids.length === 0) return showToast('請先勾選品號', 'error');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const docNo = 'DN-' + new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
+
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📋 製作交付單</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">單據編號</label>
+      <input type="text" class="form-input" id="dnDocNo" value="${docNo}" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">客戶 / 收件方</label>
+      <input type="text" class="form-input" id="dnCustomer" placeholder="例: 大江化學股份有限公司" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">交付日期</label>
+      <input type="date" class="form-input" id="dnDate" value="${today}" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">備註</label>
+      <textarea class="form-textarea" id="dnRemark" placeholder="例: 限樣編號 2026-Q2 第一批 …"></textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">將包含的品號 (${pids.length})</label>
+      <div class="dn-pid-list">${pids.map(p => `<span class="tag-chip">📦 ${escapeHtml(p)}</span>`).join('')}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="generateDeliveryNote()">🖨️ 產生並列印</button>
+    </div>
+  `);
+}
+
+function generateDeliveryNote() {
+  const docNo = document.getElementById('dnDocNo').value.trim();
+  const customer = document.getElementById('dnCustomer').value.trim() || '_______________';
+  const date = document.getElementById('dnDate').value;
+  const remark = document.getElementById('dnRemark').value.trim();
+  const pids = Array.from(state.selectedPids);
+  const samples = pids
+    .map(pid => state.allSamples.find(s => String(s.productId) === pid))
+    .filter(Boolean);
+
+  const win = window.open('', '_blank', 'width=900,height=1200');
+  const rows = samples.map((s, i) => {
+    const cover = (s.images || []).find(m => m.mediaType !== 'video');
+    const tags = extractTags(s.notes);
+    const cleanNotes = notesWithoutTags(s.notes);
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td><strong>${escapeHtml(s.productId)}</strong></td>
+        <td>
+          ${cover ? `<img src="https://drive.google.com/thumbnail?id=${cover.fileId}&sz=w400" />` : '<span style="color:#999">無照片</span>'}
+        </td>
+        <td>
+          ${tags.length ? `<div class="dn-tags">${tags.map(t => `<span>#${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+          ${cleanNotes ? escapeHtml(cleanNotes) : '<span style="color:#999">—</span>'}
+        </td>
+        <td><div class="dn-check-cell"></div></td>
+      </tr>
+    `;
+  }).join('');
+
+  win.document.write(`<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8"><title>限樣交付單 ${escapeHtml(docNo)}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans TC',sans-serif;color:#222;padding:30px;line-height:1.5}
+  .head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px double #6366f1;padding-bottom:14px;margin-bottom:18px}
+  .head h1{font-size:24px;color:#6366f1}
+  .head .meta{text-align:right;font-size:12px;color:#666}
+  .info-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 24px;margin-bottom:18px;font-size:13px}
+  .info-grid .label{color:#666;font-weight:500}
+  .remark{background:#f5f5f7;padding:12px;border-radius:6px;margin-bottom:14px;font-size:12px;white-space:pre-wrap}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th{background:#eef2ff;padding:8px;text-align:left;border:1px solid #c7d2fe;color:#4338ca;font-weight:600}
+  td{padding:8px;border:1px solid #e5e7eb;vertical-align:top}
+  td img{width:120px;height:90px;object-fit:cover;border-radius:4px;display:block}
+  .dn-tags{margin-bottom:4px}
+  .dn-tags span{display:inline-block;background:#eef2ff;color:#6366f1;padding:1px 6px;border-radius:99px;font-size:10px;margin-right:3px}
+  .dn-check-cell{width:24px;height:24px;border:2px solid #999;border-radius:4px}
+  .sign-area{margin-top:32px;display:grid;grid-template-columns:repeat(3,1fr);gap:24px}
+  .sign-box{border-top:1px solid #333;padding-top:6px;text-align:center;min-height:60px}
+  .sign-box .lbl{font-size:11px;color:#666}
+  .footer{margin-top:24px;text-align:center;color:#999;font-size:10px;border-top:1px dashed #ccc;padding-top:8px}
+  @media print{body{padding:1cm}@page{margin:1cm;size:A4}}
+</style></head><body>
+<div class="head">
+  <div>
+    <h1>📋 限樣交付確認單</h1>
+    <div style="font-size:12px;color:#666;margin-top:4px">Limit Sample Delivery Note</div>
+  </div>
+  <div class="meta">
+    <div><strong>單據編號:</strong> ${escapeHtml(docNo)}</div>
+    <div><strong>列印時間:</strong> ${new Date().toLocaleString('zh-TW')}</div>
+  </div>
+</div>
+<div class="info-grid">
+  <div><span class="label">交付方:</span> 品管部</div>
+  <div><span class="label">收件方:</span> <strong>${escapeHtml(customer)}</strong></div>
+  <div><span class="label">交付日期:</span> ${escapeHtml(date)}</div>
+  <div><span class="label">品項總數:</span> ${samples.length} 項</div>
+</div>
+${remark ? `<div class="remark"><strong>備註:</strong> ${escapeHtml(remark)}</div>` : ''}
+<table>
+  <thead><tr><th style="width:30px">#</th><th style="width:100px">品號</th><th style="width:130px">代表照片</th><th>標籤 / 注意事項</th><th style="width:50px">確認</th></tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div class="sign-area">
+  <div class="sign-box"><div class="lbl">交付方簽章</div></div>
+  <div class="sign-box"><div class="lbl">驗收方簽章</div></div>
+  <div class="sign-box"><div class="lbl">日期</div></div>
+</div>
+<div class="footer">本單據由限樣系統自動產生 — ${location.origin}</div>
+<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),800))<\/script>
+</body></html>`);
+  win.document.close();
+  closeModal();
+}
+
+// ============================================================
+// 歷史版本時間軸
+// ============================================================
+function openHistoryTimeline() {
+  const productId = state.currentLightboxProductId;
+  if (!productId) return;
+  const sample = state.allSamples.find(s => String(s.productId) === productId);
+  if (!sample) return;
+
+  // 把所有媒體依時間排序（mediaType 不限）
+  const items = [...(sample.images || [])];
+  // 我們沒有 per-image timestamp（只有 sample 級別），所以用 fileName 推斷類型分組
+  const groups = { image: [], note: [], annotation: [], video: [] };
+  for (const m of items) {
+    if (m.mediaType === 'video') groups.video.push(m);
+    else if (m.mediaType === 'note') groups.note.push(m);
+    else if (m.fileName && m.fileName.includes('標註_')) groups.annotation.push(m);
+    else groups.image.push(m);
+  }
+  // fileName 含 timestamp 就抽出
+  const tsOf = m => {
+    const x = (m.fileName || '').match(/(\d{4}-\d{2}-\d{2})/);
+    return x ? x[1] : '';
+  };
+
+  const sectionFor = (label, emoji, list) => {
+    if (list.length === 0) return '';
+    return `
+      <div class="hist-section">
+        <h4>${emoji} ${label} <span class="hist-count">${list.length}</span></h4>
+        <div class="hist-grid">
+          ${list.map(m => `
+            <div class="hist-item" onclick="openLightbox('${m.fileId}', '${m.mediaType === 'video' ? 'video' : 'image'}')">
+              <img src="https://drive.google.com/thumbnail?id=${m.fileId}&sz=w300" alt="" />
+              <div class="hist-item-name">${escapeHtml(m.fileName)}</div>
+              ${tsOf(m) ? `<div class="hist-item-ts">${tsOf(m)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  };
+
+  // 關閉 lightbox 用 modal 顯示
+  const overlay = document.getElementById('lightbox');
+  overlay.classList.remove('active');
+
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📅 ${escapeHtml(productId)} — 歷史版本</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <p class="hist-tip">點任一媒體可單獨檢視。標註版本是用既有照片改畫的衍生版。</p>
+    ${sectionFor('原始照片', '📷', groups.image)}
+    ${sectionFor('標註版本', '✏️', groups.annotation)}
+    ${sectionFor('手寫便條', '📝', groups.note)}
+    ${sectionFor('影片', '🎥', groups.video)}
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal()">關閉</button>
+    </div>
+  `);
+}
+
+// ============================================================
+// AR 對照（相機 video + 限樣圖 overlay）
+// ============================================================
+let arStream = null;
+
+async function openArOverlay() {
+  const fileId = state.currentLightboxFileId;
+  if (!fileId) return;
+
+  const overlay = document.getElementById('lightbox');
+  overlay.classList.remove('active');
+
+  openModal(`
+    <div class="modal-header">
+      <h3 class="modal-title">📷 AR 對照 — 對齊實品</h3>
+      <button class="modal-close" onclick="closeArOverlay()">&times;</button>
+    </div>
+    <div class="ar-stage">
+      <video id="arVideo" autoplay playsinline muted></video>
+      <img id="arOverlay" src="https://drive.google.com/thumbnail?id=${fileId}&sz=w1600" alt="" />
+    </div>
+    <div class="ar-tools">
+      <label>透明度
+        <input type="range" id="arOpacity" min="10" max="90" value="50" oninput="document.getElementById('arOverlay').style.opacity = this.value/100" />
+      </label>
+      <label>大小
+        <input type="range" id="arScale" min="30" max="150" value="100" oninput="document.getElementById('arOverlay').style.transform = 'translate(-50%,-50%) scale(' + this.value/100 + ')'" />
+      </label>
+      <button class="btn btn-secondary btn-sm" onclick="arSnapshot()">📸 拍照存檔</button>
+      <button class="btn btn-secondary btn-sm" onclick="closeArOverlay()">關閉</button>
+    </div>
+    <p class="ar-tip">移動手機讓限樣圖與實品重疊；可調透明度找出差異。</p>
+  `);
+
+  try {
+    arStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }
+    });
+    const v = document.getElementById('arVideo');
+    v.srcObject = arStream;
+    await v.play();
+  } catch (err) {
+    showToast('無法開相機：' + err.message, 'error');
+    closeArOverlay();
+  }
+}
+
+function arSnapshot() {
+  const v = document.getElementById('arVideo');
+  const ov = document.getElementById('arOverlay');
+  if (!v || !ov) return;
+  const w = v.videoWidth, h = v.videoHeight;
+  if (!w || !h) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(v, 0, 0, w, h);
+  // 疊上 overlay (依當前 CSS 比例)
+  ctx.globalAlpha = parseFloat(ov.style.opacity) || 0.5;
+  // 把 overlay 估算成相同比例填滿
+  ctx.drawImage(ov, 0, 0, w, h);
+  ctx.globalAlpha = 1;
+  const url = canvas.toDataURL('image/jpeg', 0.9);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `AR對照_${new Date().toISOString().slice(0,10)}.jpg`;
+  a.click();
+  showToast('已下載快照', 'success');
+}
+
+function closeArOverlay() {
+  if (arStream) {
+    arStream.getTracks().forEach(t => t.stop());
+    arStream = null;
+  }
+  closeModal();
 }
 
 // ============================================================

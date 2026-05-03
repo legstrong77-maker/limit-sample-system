@@ -9,6 +9,15 @@ const SHEET_PWD = '密碼管理';
 const SHEET_LOG = '登入紀錄';
 const SHEET_AUDIT = '變更紀錄';
 
+// ============================================================
+// LINE Bot 設定 (請至 LINE Developers 取得)
+// 1. 建立 Messaging API Channel: https://developers.line.biz/console/
+// 2. 取得 Channel access token (long-lived) 填入下方
+// 3. 把這份 GAS Web App URL 設定為 Webhook URL
+// 4. 加 Bot 為好友 → 傳訊息 (品號) → 自動回限樣照片
+// ============================================================
+const LINE_CHANNEL_TOKEN = ''; // ← 填這裡，例如 'xxxxxxx....'
+
 // 快取設定
 const CACHE_KEY_ALL = 'all_samples_v2';
 const CACHE_KEY_HASH = 'all_samples_hash_v2';
@@ -44,6 +53,13 @@ function doGet(e) {
 function doPost(e) {
   try {
     const data = JSON.parse(e.postData.contents);
+
+    // === LINE Webhook 路徑 (沒有 password, 但有 events) ===
+    if (data.events && Array.isArray(data.events)) {
+      handleLineWebhook(data);
+      // LINE 期望 200 OK
+      return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
+    }
 
     // 管理員操作需要密碼驗證
     if (!verifyAdminLogic(data.password)) {
@@ -289,6 +305,10 @@ function updateSample(data) {
     throw new Error('找不到品號: ' + targetProductId);
   }
 
+  // 找到 expiresAt 欄
+  const headers = allData[0];
+  const expCol = headers.indexOf('expiresAt');
+
   // 更新品號和注意事項（所有同品號的列）
   for (const idx of rowIndices) {
     if (data.productId) {
@@ -296,6 +316,9 @@ function updateSample(data) {
     }
     if (data.notes !== undefined) {
       sheet.getRange(idx + 1, 3).setValue(data.notes);
+    }
+    if (data.expiresAt !== undefined && expCol !== -1) {
+      sheet.getRange(idx + 1, expCol + 1).setValue(data.expiresAt || '');
     }
     sheet.getRange(idx + 1, 7).setValue(now);
   }
@@ -430,13 +453,19 @@ function getSheet() {
       'updatedAt',
       'mediaType',
       'sortOrder',
+      'expiresAt',
     ]);
   } else {
-    // 自動補上 sortOrder 欄（向下相容舊 sheet）
+    // 自動補欄位（向下相容舊 sheet）
     const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    if (headers.indexOf('sortOrder') === -1) {
-      sheet.getRange(1, headers.length + 1).setValue('sortOrder');
-    }
+    const ensureCol = name => {
+      if (headers.indexOf(name) === -1) {
+        sheet.getRange(1, headers.length + 1).setValue(name);
+        headers.push(name);
+      }
+    };
+    ensureCol('sortOrder');
+    ensureCol('expiresAt');
   }
 
   return sheet;
@@ -568,8 +597,13 @@ function groupByProductId(rows) {
         notes: row.notes,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
+        expiresAt: row.expiresAt || '',
         images: [],
       };
+    }
+    // 任何 row 有 expiresAt 就用那個
+    if (row.expiresAt && !map[pid].expiresAt) {
+      map[pid].expiresAt = row.expiresAt;
     }
     const sortRaw = row.sortOrder;
     const sortNum = (sortRaw === '' || sortRaw == null) ? Number.MAX_SAFE_INTEGER : Number(sortRaw);
@@ -603,6 +637,107 @@ function jsonResponse(data, statusCode) {
   const output = ContentService.createTextOutput(JSON.stringify(data));
   output.setMimeType(ContentService.MimeType.JSON);
   return output;
+}
+
+// ============================================================
+// LINE Bot Webhook 處理
+// ============================================================
+
+function handleLineWebhook(payload) {
+  if (!LINE_CHANNEL_TOKEN) {
+    Logger.log('LINE_CHANNEL_TOKEN 未設定，略過');
+    return;
+  }
+  for (const ev of payload.events) {
+    try {
+      if (ev.type !== 'message' || ev.message.type !== 'text') continue;
+      const query = String(ev.message.text || '').trim();
+      if (!query) continue;
+      handleLineQuery(ev.replyToken, query);
+    } catch (e) {
+      Logger.log('LINE event 處理錯誤: ' + e.message);
+    }
+  }
+}
+
+function handleLineQuery(replyToken, query) {
+  // 找品號 (模糊比對, 取第一個命中)
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const upperQuery = query.toUpperCase();
+
+  // 收集所有 row
+  const rows = [];
+  for (let i = 1; i < data.length; i++) {
+    rows.push(rowToObject(headers, data[i]));
+  }
+  const grouped = groupByProductId(rows);
+
+  // 完全相符優先；其次 includes
+  let match = grouped.find(s => String(s.productId).toUpperCase() === upperQuery);
+  if (!match) {
+    const candidates = grouped.filter(s => String(s.productId).toUpperCase().includes(upperQuery));
+    if (candidates.length === 0) {
+      lineReply(replyToken, [{
+        type: 'text',
+        text: `❌ 找不到品號「${query}」\n\n💡 可輸入完整或部分品號搜尋`
+      }]);
+      return;
+    }
+    if (candidates.length > 1) {
+      // 多個 → 列出讓使用者選
+      const list = candidates.slice(0, 8).map(s => `📦 ${s.productId}`).join('\n');
+      const more = candidates.length > 8 ? `\n\n…還有 ${candidates.length - 8} 個` : '';
+      lineReply(replyToken, [{
+        type: 'text',
+        text: `🔍 找到 ${candidates.length} 個符合：\n\n${list}${more}\n\n請輸入更完整的品號`
+      }]);
+      return;
+    }
+    match = candidates[0];
+  }
+
+  // 有 match → 回 文字 + 圖片 (前 4 張, LINE reply 上限 5 訊息)
+  const cleanNotes = (match.notes || '').replace(/#([^\s#,]+)/g, '').replace(/\s+/g, ' ').trim();
+  const tagsArr = [];
+  let m;
+  const re = /#([^\s#,]+)/g;
+  while ((m = re.exec(match.notes || '')) !== null) tagsArr.push(m[1]);
+
+  const expiry = match.expiresAt ? `\n⏰ 到期: ${String(match.expiresAt).slice(0,10)}` : '';
+  const tagStr = tagsArr.length ? `\n🏷️ ${tagsArr.map(t => '#' + t).join(' ')}` : '';
+
+  const messages = [{
+    type: 'text',
+    text: `📦 ${match.productId}${tagStr}${expiry}\n\n${cleanNotes || '（無注意事項）'}`,
+  }];
+
+  const photos = (match.images || []).filter(im => im.mediaType !== 'video').slice(0, 4);
+  for (const p of photos) {
+    messages.push({
+      type: 'image',
+      originalContentUrl: `https://drive.google.com/thumbnail?id=${p.fileId}&sz=w1024`,
+      previewImageUrl: `https://drive.google.com/thumbnail?id=${p.fileId}&sz=w240`,
+    });
+  }
+
+  lineReply(replyToken, messages);
+}
+
+function lineReply(replyToken, messages) {
+  if (!LINE_CHANNEL_TOKEN) return;
+  try {
+    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { Authorization: 'Bearer ' + LINE_CHANNEL_TOKEN },
+      payload: JSON.stringify({ replyToken, messages }),
+      muteHttpExceptions: true,
+    });
+  } catch (e) {
+    Logger.log('LINE reply 失敗: ' + e.message);
+  }
 }
 
 // ============================================================
