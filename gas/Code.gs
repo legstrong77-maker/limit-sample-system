@@ -10,13 +10,17 @@ const SHEET_LOG = '登入紀錄';
 const SHEET_AUDIT = '變更紀錄';
 
 // ============================================================
-// LINE Bot 設定 (請至 LINE Developers 取得)
-// 1. 建立 Messaging API Channel: https://developers.line.biz/console/
-// 2. 取得 Channel access token (long-lived) 填入下方
-// 3. 把這份 GAS Web App URL 設定為 Webhook URL
-// 4. 加 Bot 為好友 → 傳訊息 (品號) → 自動回限樣照片
+// LINE Bot 設定 — token 從 ScriptProperties 讀取，不寫死在 code
 // ============================================================
-const LINE_CHANNEL_TOKEN = ''; // ← 填這裡，例如 'xxxxxxx....'
+// 設定方式（一次性）:
+//   GAS 編輯器 → 左側齒輪「專案設定」→ 最下方「指令碼屬性」→ 新增屬性
+//   屬性名稱: LINE_CHANNEL_TOKEN
+//   值: <你的 token>
+function getLineToken() {
+  try {
+    return PropertiesService.getScriptProperties().getProperty('LINE_CHANNEL_TOKEN') || '';
+  } catch (e) { return ''; }
+}
 
 // 快取設定
 const CACHE_KEY_ALL = 'all_samples_v2';
@@ -644,8 +648,9 @@ function jsonResponse(data, statusCode) {
 // ============================================================
 
 function handleLineWebhook(payload) {
-  if (!LINE_CHANNEL_TOKEN) {
-    Logger.log('LINE_CHANNEL_TOKEN 未設定，略過');
+  const token = getLineToken();
+  if (!token) {
+    Logger.log('LINE_CHANNEL_TOKEN 未設定（ScriptProperties），略過');
     return;
   }
   for (const ev of payload.events) {
@@ -726,12 +731,13 @@ function handleLineQuery(replyToken, query) {
 }
 
 function lineReply(replyToken, messages) {
-  if (!LINE_CHANNEL_TOKEN) return;
+  const token = getLineToken();
+  if (!token) return;
   try {
     UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'post',
       contentType: 'application/json',
-      headers: { Authorization: 'Bearer ' + LINE_CHANNEL_TOKEN },
+      headers: { Authorization: 'Bearer ' + token },
       payload: JSON.stringify({ replyToken, messages }),
       muteHttpExceptions: true,
     });
