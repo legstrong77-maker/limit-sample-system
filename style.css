@@ -1207,6 +1207,292 @@ body {
 }
 
 /* ============================================================
+   Offline Banner
+   ============================================================ */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5000;
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: #fff;
+  padding: 8px 16px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transform: translateY(-100%);
+  transition: transform var(--transition-normal);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.4);
+}
+
+.offline-banner.visible {
+  transform: translateY(0);
+}
+
+.offline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  animation: offlinePulse 1.6s ease-in-out infinite;
+}
+
+@keyframes offlinePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.4); }
+}
+
+/* ============================================================
+   Duplicate Product Dialog
+   ============================================================ */
+.dup-warning {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.dup-pid {
+  display: inline-block;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent-primary-hover);
+  background: rgba(99,102,241,0.15);
+  padding: 8px 20px;
+  border-radius: 999px;
+  margin-bottom: 16px;
+}
+
+.dup-warning p {
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.dup-question {
+  color: var(--text-primary) !important;
+  font-weight: 600;
+  margin-top: 16px !important;
+}
+
+.dup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dup-option {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+  color: var(--text-primary);
+}
+
+.dup-option:hover {
+  border-color: var(--accent-primary);
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+}
+
+.dup-option.dup-merge:hover {
+  border-color: var(--success);
+  background: rgba(16,185,129,0.08);
+}
+
+.dup-option.dup-new:hover {
+  border-color: var(--warning);
+  background: rgba(245,158,11,0.08);
+}
+
+.dup-option.dup-cancel:hover {
+  border-color: var(--text-muted);
+}
+
+.dup-icon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.dup-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dup-text strong {
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.dup-text span {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+/* ============================================================
+   Annotator (Lightbox 內標註器)
+   ============================================================ */
+.lightbox-annotate {
+  position: absolute;
+  top: 20px;
+  right: 80px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent-gradient);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-md);
+}
+
+.lightbox-annotate:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-glow), var(--shadow-md);
+}
+
+.annotator-overlay {
+  position: fixed;
+  inset: 0;
+  background: #0a0c12;
+  z-index: 2500;
+  display: none;
+  flex-direction: column;
+}
+
+.annotator-overlay.active {
+  display: flex;
+}
+
+.annotator-toolbar {
+  display: flex;
+  gap: 16px;
+  padding: 12px 20px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.ann-tool-group {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.ann-spacer {
+  margin-left: auto;
+  background: transparent !important;
+  padding: 0 !important;
+  gap: 8px;
+}
+
+.ann-color {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ann-color:hover { transform: scale(1.1); }
+.ann-color.active { border-color: #fff; box-shadow: 0 0 0 2px var(--accent-primary); }
+
+.ann-size, .ann-mode, .ann-action {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  transition: all var(--transition-fast);
+}
+
+.ann-size:hover, .ann-mode:hover, .ann-action:hover {
+  background: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.ann-size.active, .ann-mode.active {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+.ann-size-dot {
+  display: inline-block;
+  background: currentColor;
+  border-radius: 50%;
+}
+.ann-size-dot.s1 { width: 4px; height: 4px; }
+.ann-size-dot.s2 { width: 8px; height: 8px; }
+.ann-size-dot.s3 { width: 14px; height: 14px; }
+
+.annotator-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 20px;
+  background:
+    linear-gradient(45deg, #1a1d27 25%, transparent 25%),
+    linear-gradient(-45deg, #1a1d27 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #1a1d27 75%),
+    linear-gradient(-45deg, transparent 75%, #1a1d27 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+  background-color: #0f1117;
+}
+
+#annotatorCanvas {
+  cursor: crosshair;
+  touch-action: none;
+  background: #fff;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+  .annotator-toolbar {
+    padding: 8px;
+    gap: 8px;
+  }
+  .ann-spacer {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .lightbox-annotate {
+    right: 16px;
+    top: 16px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+}
+
+/* ============================================================
    Welcome Panel (User Mode)
    ============================================================ */
 .welcome-panel {

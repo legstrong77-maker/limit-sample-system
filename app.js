@@ -199,8 +199,96 @@ function bootstrapApp() {
   window.addEventListener('hashchange', applyDeepLink);
   // 註冊 service worker（PWA）
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(() => {
+      // SW 就緒後背景預熱所有 thumbnail
+      schedulePrewarmThumbnails();
+    }).catch(() => {});
   }
+  // 離線狀態
+  setupOfflineBanner();
+}
+
+// ============================================================
+// 離線狀態指示
+// ============================================================
+function setupOfflineBanner() {
+  const banner = document.getElementById('offlineBanner');
+  if (!banner) return;
+  const update = () => {
+    if (navigator.onLine) {
+      banner.classList.remove('visible');
+    } else {
+      banner.classList.add('visible');
+    }
+  };
+  window.addEventListener('online', () => {
+    update();
+    showToast('已恢復連線', 'success');
+    refreshInBackground();
+  });
+  window.addEventListener('offline', () => {
+    update();
+    showToast('已切換到離線模式', 'info');
+  });
+  update();
+}
+
+// ============================================================
+// 背景預熱 thumbnail (寫入 SW cache，之後完全離線)
+// ============================================================
+let prewarmDone = false;
+function schedulePrewarmThumbnails() {
+  if (prewarmDone) return;
+  const run = () => {
+    if (prewarmDone) return;
+    prewarmDone = true;
+    prewarmThumbnails();
+  };
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(run, { timeout: 5000 });
+  } else {
+    setTimeout(run, 3000);
+  }
+}
+
+async function prewarmThumbnails() {
+  const samples = state.allSamples || [];
+  if (samples.length === 0) return;
+
+  const urls = [];
+  for (const s of samples) {
+    for (const m of (s.images || [])) {
+      if (m.mediaType !== 'video' && m.fileId) {
+        urls.push(`https://drive.google.com/thumbnail?id=${m.fileId}&sz=w400`);
+      }
+    }
+  }
+  if (urls.length === 0) return;
+
+  // 並行 6 條，避免一次塞爆網路；用 Image() 自動走 SW cache
+  let inFlight = 0;
+  let idx = 0;
+  let done = 0;
+  await new Promise(resolve => {
+    const next = () => {
+      while (inFlight < 6 && idx < urls.length) {
+        const u = urls[idx++];
+        inFlight++;
+        const img = new Image();
+        const finish = () => {
+          inFlight--;
+          done++;
+          if (done >= urls.length) resolve();
+          else next();
+        };
+        img.onload = finish;
+        img.onerror = finish;
+        img.src = u;
+      }
+    };
+    next();
+  });
+  console.log(`[prewarm] ${urls.length} thumbnails cached`);
 }
 
 if (document.readyState === 'loading') {
@@ -764,6 +852,19 @@ function openLightbox(fileId, type) {
   const overlay = document.getElementById('lightbox');
   const imgEl = document.getElementById('lightboxImg');
   const videoEl = document.getElementById('lightboxVideo');
+  const annBtn = document.getElementById('lightboxAnnotateBtn');
+
+  state.currentLightboxFileId = fileId;
+  state.currentLightboxType = type;
+
+  // 找出此 fileId 對應的 productId（給標註後上傳用）
+  state.currentLightboxProductId = null;
+  for (const s of state.allSamples) {
+    if ((s.images || []).some(m => m.fileId === fileId)) {
+      state.currentLightboxProductId = s.productId;
+      break;
+    }
+  }
 
   if (type === 'video') {
     imgEl.style.display = 'none';
@@ -771,12 +872,15 @@ function openLightbox(fileId, type) {
     videoEl.src = `https://drive.google.com/uc?export=download&id=${fileId}`;
     videoEl.controls = true;
     videoEl.play();
+    if (annBtn) annBtn.style.display = 'none';
   } else {
     videoEl.style.display = 'none';
     videoEl.pause();
     videoEl.src = '';
     imgEl.style.display = 'block';
     imgEl.src = `https://drive.google.com/thumbnail?id=${fileId}&sz=w2000`;
+    // 只有 admin 登入且有 productId 才顯示標註按鈕
+    if (annBtn) annBtn.style.display = (state.isAdminLoggedIn && state.currentLightboxProductId) ? 'flex' : 'none';
   }
 
   overlay.classList.add('active');
@@ -1136,6 +1240,19 @@ async function submitCreate() {
     return;
   }
 
+  // 重複品號偵測
+  const existing = state.allSamples.find(
+    (s) => String(s.productId).toUpperCase() === productId.toUpperCase()
+  );
+  if (existing) {
+    showDuplicateModal(existing, productId, notes);
+    return;
+  }
+
+  await doCreateSample(productId, notes);
+}
+
+async function doCreateSample(productId, notes) {
   showLoading(true);
   try {
     const res = await apiPost({
@@ -1154,12 +1271,109 @@ async function submitCreate() {
 
     showToast('限樣建立成功', 'success');
     closeModal();
-    loadAllSamples(true); // 強制重新抓取以更新 cache
+    loadAllSamples(true);
   } catch (err) {
     showToast('新增失敗：' + err.message, 'error');
   } finally {
     showLoading(false);
   }
+}
+
+async function doMergeIntoExisting(originalProductId, productId, notes) {
+  showLoading(true);
+  try {
+    const res = await apiPost({
+      action: 'update',
+      originalProductId,
+      productId,
+      notes,
+      deletedImageIds: [],
+      newImages: state.pendingFiles.map((f) => ({
+        fileName: f.fileName,
+        mimeType: f.mimeType,
+        mediaType: f.mediaType,
+        data: f.data,
+      })),
+    });
+
+    if (res.error) throw new Error(res.error);
+
+    showToast(`已併入既有品號 ${productId}`, 'success');
+    closeModal();
+    loadAllSamples(true);
+  } catch (err) {
+    showToast('併入失敗：' + err.message, 'error');
+  } finally {
+    showLoading(false);
+  }
+}
+
+function showDuplicateModal(existing, productId, notes) {
+  const existingMediaCount = (existing.images || []).length;
+  const newMediaCount = state.pendingFiles.length;
+
+  // 開新 modal 但保留 pendingFiles，因為使用者可能會選「合併」
+  const overlay = document.getElementById('modalOverlay');
+  const content = document.getElementById('modalContent');
+
+  // 暫存目前的 pendingFiles（防止 closeModal 清掉）
+  const savedFiles = [...state.pendingFiles];
+
+  content.innerHTML = `
+    <div class="modal-header">
+      <h3 class="modal-title">⚠️ 品號已存在</h3>
+    </div>
+    <div class="dup-warning">
+      <div class="dup-pid">📦 ${escapeHtml(productId)}</div>
+      <p>系統內已有此品號（${existingMediaCount} 張媒體），你現在要新增 ${newMediaCount} 張。</p>
+      <p class="dup-question">要怎麼處理？</p>
+    </div>
+    <div class="dup-actions">
+      <button class="dup-option dup-merge" onclick="window.__dupMerge()">
+        <div class="dup-icon">🔗</div>
+        <div class="dup-text">
+          <strong>併入既有品號</strong>
+          <span>新照片加到既有的 ${existingMediaCount} 張後面（推薦）</span>
+        </div>
+      </button>
+      <button class="dup-option dup-new" onclick="window.__dupNew()">
+        <div class="dup-icon">➕</div>
+        <div class="dup-text">
+          <strong>仍要新建一筆</strong>
+          <span>會出現兩筆同品號，可能造成混亂</span>
+        </div>
+      </button>
+      <button class="dup-option dup-cancel" onclick="window.__dupCancel()">
+        <div class="dup-icon">✖️</div>
+        <div class="dup-text">
+          <strong>取消</strong>
+          <span>回到新增表單，我手動改品號</span>
+        </div>
+      </button>
+    </div>
+  `;
+
+  // 註冊一次性處理器
+  window.__dupMerge = () => {
+    state.pendingFiles = savedFiles;
+    doMergeIntoExisting(existing.productId, productId, notes);
+  };
+  window.__dupNew = () => {
+    state.pendingFiles = savedFiles;
+    doCreateSample(productId, notes);
+  };
+  window.__dupCancel = () => {
+    state.pendingFiles = savedFiles;
+    showCreateModal();
+    // 還原表單欄位（showCreateModal 重建了 modal）
+    setTimeout(() => {
+      const pidEl = document.getElementById('createProductId');
+      const notesEl = document.getElementById('createNotes');
+      if (pidEl) pidEl.value = productId;
+      if (notesEl) notesEl.value = notes;
+      renderUploadPreviews();
+    }, 50);
+  };
 }
 
 // ============================================================
@@ -1611,3 +1825,296 @@ async function submitDeletePwd(pwd) {
     showLoading(false);
   }
 }
+
+// ============================================================
+// 照片標註器 (Canvas)
+// 設計：
+//   - 用 high-res Drive thumbnail (w1600) 作底
+//   - 操作 stroke 存在 ann.strokes 陣列以支援 undo
+//   - 儲存時把 image + strokes 合成到 canvas → blob → base64 → 上傳
+//   - 上傳路徑用既有 update API 的 newImages，不動原檔
+// ============================================================
+const ann = {
+  active: false,
+  color: '#ef4444',
+  size: 3,
+  mode: 'pen', // 'pen' | 'rect' | 'arrow'
+  strokes: [], // {color, size, mode, points: [{x, y}, ...]}
+  current: null,
+  baseImg: null,
+  baseImgLoaded: false,
+};
+
+function openAnnotator() {
+  const fileId = state.currentLightboxFileId;
+  const productId = state.currentLightboxProductId;
+  if (!fileId || !productId) return;
+  if (!state.isAdminLoggedIn) {
+    showToast('需要管理員權限才能標註', 'error');
+    return;
+  }
+
+  ann.strokes = [];
+  ann.current = null;
+  ann.baseImgLoaded = false;
+  ann.targetFileId = fileId;
+  ann.targetProductId = productId;
+
+  const overlay = document.getElementById('annotatorOverlay');
+  overlay.classList.add('active');
+  document.body.style.overflow = 'hidden';
+
+  // 顯示 loading
+  showLoading(true);
+  // drive.google.com 沒回 CORS → canvas 會 tainted → toBlob 失敗
+  // 改走 GAS proxy 拿 base64，再用 dataURL 載入，canvas 乾淨
+  loadImageViaProxy(fileId).then(img => {
+    showLoading(false);
+    ann.baseImg = img;
+    ann.baseImgLoaded = true;
+    setupAnnCanvas();
+    drawAnn();
+  }).catch(err => {
+    showLoading(false);
+    closeAnnotator();
+    showToast('圖片載入失敗：' + err.message, 'error');
+  });
+}
+
+async function loadImageViaProxy(fileId) {
+  // GAS serveImage 回 base64 string
+  const url = new URL(CONFIG.API_URL);
+  url.searchParams.set('action', 'getImage');
+  url.searchParams.set('fileId', fileId);
+  const res = await fetch(url.toString());
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const base64 = await res.text();
+  if (!base64) throw new Error('空回應');
+  const dataUrl = 'data:image/jpeg;base64,' + base64;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('圖片解碼失敗'));
+    img.src = dataUrl;
+  });
+}
+
+function setupAnnCanvas() {
+  const canvas = document.getElementById('annotatorCanvas');
+  const stage = document.getElementById('annotatorStage');
+  if (!canvas || !ann.baseImg) return;
+
+  // 適應視窗：保留標註座標一致 → 內部 canvas 尺寸 = 圖片原始尺寸
+  canvas.width = ann.baseImg.naturalWidth;
+  canvas.height = ann.baseImg.naturalHeight;
+
+  // CSS 縮放適應 stage
+  const stageRect = stage.getBoundingClientRect();
+  const ratio = Math.min(stageRect.width / canvas.width, stageRect.height / canvas.height);
+  canvas.style.width = (canvas.width * ratio) + 'px';
+  canvas.style.height = (canvas.height * ratio) + 'px';
+
+  // 註冊事件
+  canvas.onpointerdown = onAnnPointerDown;
+  canvas.onpointermove = onAnnPointerMove;
+  canvas.onpointerup = onAnnPointerUp;
+  canvas.onpointerleave = onAnnPointerUp;
+}
+
+function getAnnCoords(e) {
+  const canvas = document.getElementById('annotatorCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (e.clientX - rect.left) * scaleX,
+    y: (e.clientY - rect.top) * scaleY,
+  };
+}
+
+function onAnnPointerDown(e) {
+  e.preventDefault();
+  e.target.setPointerCapture(e.pointerId);
+  const p = getAnnCoords(e);
+  ann.current = {
+    color: ann.color,
+    size: ann.size * (ann.baseImg.naturalWidth / 1000), // 依圖大小縮放
+    mode: ann.mode,
+    points: [p],
+  };
+}
+
+function onAnnPointerMove(e) {
+  if (!ann.current) return;
+  const p = getAnnCoords(e);
+  if (ann.current.mode === 'pen') {
+    ann.current.points.push(p);
+  } else {
+    // rect / arrow 只記起點與終點
+    ann.current.points = [ann.current.points[0], p];
+  }
+  drawAnn();
+}
+
+function onAnnPointerUp(e) {
+  if (!ann.current) return;
+  ann.strokes.push(ann.current);
+  ann.current = null;
+  drawAnn();
+}
+
+function drawAnn() {
+  const canvas = document.getElementById('annotatorCanvas');
+  if (!canvas || !ann.baseImg) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(ann.baseImg, 0, 0);
+
+  const all = [...ann.strokes];
+  if (ann.current) all.push(ann.current);
+  for (const s of all) drawStroke(ctx, s);
+}
+
+function drawStroke(ctx, s) {
+  ctx.save();
+  ctx.strokeStyle = s.color;
+  ctx.fillStyle = s.color;
+  ctx.lineWidth = s.size;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (s.mode === 'pen') {
+    if (s.points.length < 2) {
+      ctx.beginPath();
+      ctx.arc(s.points[0].x, s.points[0].y, s.size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(s.points[0].x, s.points[0].y);
+      for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);
+      ctx.stroke();
+    }
+  } else if (s.mode === 'rect' && s.points.length >= 2) {
+    const [a, b] = [s.points[0], s.points[s.points.length - 1]];
+    ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+  } else if (s.mode === 'arrow' && s.points.length >= 2) {
+    const [a, b] = [s.points[0], s.points[s.points.length - 1]];
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    // 箭頭頭
+    const angle = Math.atan2(b.y - a.y, b.x - a.x);
+    const headLen = s.size * 5;
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - headLen * Math.cos(angle - Math.PI / 7), b.y - headLen * Math.sin(angle - Math.PI / 7));
+    ctx.lineTo(b.x - headLen * Math.cos(angle + Math.PI / 7), b.y - headLen * Math.sin(angle + Math.PI / 7));
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function setAnnColor(btn, color) {
+  ann.color = color;
+  document.querySelectorAll('.ann-color').forEach(b => b.classList.toggle('active', b === btn));
+}
+function setAnnSize(btn, size) {
+  ann.size = size;
+  document.querySelectorAll('.ann-size').forEach(b => b.classList.toggle('active', b === btn));
+}
+function setAnnMode(btn, mode) {
+  ann.mode = mode;
+  document.querySelectorAll('.ann-mode').forEach(b => b.classList.toggle('active', b === btn));
+}
+function annUndo() {
+  ann.strokes.pop();
+  drawAnn();
+}
+function annClear() {
+  if (ann.strokes.length === 0) return;
+  if (!confirm('確定清除所有標註？')) return;
+  ann.strokes = [];
+  drawAnn();
+}
+
+function closeAnnotator() {
+  const overlay = document.getElementById('annotatorOverlay');
+  overlay.classList.remove('active');
+  document.body.style.overflow = '';
+  ann.strokes = [];
+  ann.current = null;
+  ann.baseImg = null;
+  ann.tainted = false;
+}
+
+async function saveAnnotation() {
+  if (!ann.baseImg) return;
+  if (ann.strokes.length === 0) {
+    showToast('還沒畫東西', 'error');
+    return;
+  }
+
+  const canvas = document.getElementById('annotatorCanvas');
+  let blob;
+  try {
+    blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('toBlob 失敗')), 'image/jpeg', 0.9);
+    });
+  } catch (e) {
+    showToast('儲存失敗：' + e.message + '（可能因跨網域）', 'error');
+    return;
+  }
+
+  // 轉 base64
+  const reader = new FileReader();
+  reader.onload = async () => {
+    const dataUrl = reader.result;
+    const base64 = dataUrl.split(',')[1];
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const fileName = `標註_${ts}.jpg`;
+
+    showLoading(true);
+    try {
+      const res = await apiPost({
+        action: 'update',
+        originalProductId: ann.targetProductId,
+        productId: ann.targetProductId,
+        notes: undefined,
+        deletedImageIds: [],
+        newImages: [{
+          fileName,
+          mimeType: 'image/jpeg',
+          mediaType: 'image',
+          data: base64,
+        }],
+      });
+      if (res.error) throw new Error(res.error);
+      showToast('標註已儲存為新照片', 'success');
+      closeAnnotator();
+      closeLightbox();
+      loadAllSamples(true);
+    } catch (e) {
+      showToast('上傳失敗：' + e.message, 'error');
+    } finally {
+      showLoading(false);
+    }
+  };
+  reader.readAsDataURL(blob);
+}
+
+// 視窗 resize 時重設 canvas 顯示尺寸
+window.addEventListener('resize', () => {
+  if (document.getElementById('annotatorOverlay')?.classList.contains('active')) {
+    setupAnnCanvas();
+    drawAnn();
+  }
+});
+
+// ESC 關閉標註器
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('annotatorOverlay')?.classList.contains('active')) {
+    closeAnnotator();
+  }
+});
