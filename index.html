@@ -69,7 +69,7 @@
             type="text"
             class="search-input"
             id="searchInput"
-            placeholder="輸入品號搜尋限樣..."
+            placeholder="輸入品號或注意事項搜尋…（按 / 快速聚焦）"
             onkeyup="handleSearch(event)"
           />
         </div>
@@ -134,13 +134,16 @@
             </div>
           </div>
 
+          <!-- 統計卡片 -->
+          <div class="stats-grid" id="adminStats"></div>
+
           <div class="search-container">
             <span class="search-icon">🔍</span>
             <input
               type="text"
               class="search-input"
               id="adminSearchInput"
-              placeholder="搜尋品號..."
+              placeholder="搜尋品號或注意事項..."
               onkeyup="handleAdminSearch(event)"
             />
           </div>
@@ -166,7 +169,7 @@
       </section>
     </div>
 
-    <script src="config.js?v=9"></script>
-    <script src="app.js?v=9"></script>
+    <script src="config.js?v=11"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>

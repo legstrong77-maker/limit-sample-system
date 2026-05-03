@@ -8,6 +8,11 @@ const ADMIN_PASSWORD = 'fk2498505'; // 管理員密碼 (最高權限)
 const SHEET_PWD = '密碼管理';
 const SHEET_LOG = '登入紀錄';
 
+// 快取設定
+const CACHE_KEY_ALL = 'all_samples_v2';
+const CACHE_KEY_HASH = 'all_samples_hash_v2';
+const CACHE_TTL_SEC = 600; // 10 分鐘
+
 // ============================================================
 // 路由處理
 // ============================================================
@@ -20,7 +25,7 @@ function doGet(e) {
       case 'search':
         return jsonResponse(searchSamples(e.parameter.productId));
       case 'getAll':
-        return jsonResponse(getAllSamples());
+        return jsonResponse(getAllSamples(e.parameter.hash, e.parameter._force));
       case 'getImage':
         return serveImage(e.parameter.fileId);
       case 'verifyAdmin':
@@ -113,20 +118,100 @@ function searchSamples(productId) {
 }
 
 /**
- * 取得所有限樣
+ * 取得所有限樣（10 分鐘快取 + hash 短路）
+ *
+ * @param {string} clientHash 客戶端目前持有的資料 hash（可選）
+ * @param {string} forceFlag  '1' 表示強制重算 cache（debug 用）
+ *
+ * 流程：
+ *   1. 若 forceFlag → 清 cache
+ *   2. 拿到當前資料的 hash（cache 內有就直接拿；沒有就讀 sheet 算）
+ *   3. 若 clientHash === currentHash → 回 {notModified: true, hash}
+ *   4. 否則回完整 {results, hash}
  */
-function getAllSamples() {
-  const sheet = getSheet();
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const results = [];
+function getAllSamples(clientHash, forceFlag) {
+  const cache = CacheService.getScriptCache();
 
-  for (let i = 1; i < data.length; i++) {
-    results.push(rowToObject(headers, data[i]));
+  if (forceFlag === '1') {
+    invalidateCache();
   }
 
-  const grouped = groupByProductId(results);
-  return { results: grouped };
+  // Hash 跟資料一起算，永遠保證 1:1 對應
+  const cachedStr = cache.get(CACHE_KEY_ALL);
+  const cachedHash = cache.get(CACHE_KEY_HASH);
+
+  let payloadStr, hash, payload;
+
+  // 不論 payload cache 在不在，只要有 hash 就先試短路
+  if (cachedHash && clientHash && clientHash === cachedHash) {
+    return { notModified: true, hash: cachedHash };
+  }
+
+  if (cachedStr && cachedHash) {
+    payloadStr = cachedStr;
+    hash = cachedHash;
+    try {
+      payload = JSON.parse(cachedStr);
+    } catch (e) {
+      payload = null;
+    }
+  }
+
+  if (!payload) {
+    // Cache miss → 重讀 sheet
+    const sheet = getSheet();
+    const data = sheet.getDataRange().getValues();
+    const headers = data[0];
+    const results = [];
+    for (let i = 1; i < data.length; i++) {
+      results.push(rowToObject(headers, data[i]));
+    }
+    const grouped = groupByProductId(results);
+    payload = { results: grouped };
+    payloadStr = JSON.stringify(payload);
+    hash = computeMd5(payloadStr);
+
+    try {
+      // hash 很小一定能存
+      cache.put(CACHE_KEY_HASH, hash, CACHE_TTL_SEC);
+      // 完整資料超過 95KB 就放棄存（CacheService 上限 100KB）
+      if (payloadStr.length < 95000) {
+        cache.put(CACHE_KEY_ALL, payloadStr, CACHE_TTL_SEC);
+      }
+    } catch (e) {}
+
+    // 重新算完 hash 後，若 client 帶的 hash 剛好一致 → 短路
+    if (clientHash && clientHash === hash) {
+      return { notModified: true, hash: hash };
+    }
+  }
+
+  payload.hash = hash;
+  return payload;
+}
+
+function invalidateCache() {
+  try {
+    const cache = CacheService.getScriptCache();
+    cache.remove(CACHE_KEY_ALL);
+    cache.remove(CACHE_KEY_HASH);
+  } catch (e) {}
+}
+
+function computeMd5(str) {
+  const bytes = Utilities.computeDigest(
+    Utilities.DigestAlgorithm.MD5,
+    str,
+    Utilities.Charset.UTF_8
+  );
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) {
+    let b = bytes[i];
+    if (b < 0) b += 256;
+    const h = b.toString(16);
+    hex += h.length === 1 ? '0' + h : h;
+  }
+  return hex;
 }
 
 /**
@@ -172,6 +257,7 @@ function createSample(data) {
     sheet.appendRow(row);
   }
 
+  invalidateCache();
   return { success: true };
 }
 
@@ -257,6 +343,7 @@ function updateSample(data) {
     }
   }
 
+  invalidateCache();
   return { success: true };
 }
 
@@ -288,6 +375,7 @@ function deleteSample(data) {
     sheet.deleteRow(idx + 1);
   }
 
+  invalidateCache();
   return { success: true, deletedCount: deleteIndices.length };
 }
 

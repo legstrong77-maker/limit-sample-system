@@ -23,14 +23,57 @@ let dataLoadPromise = null;
 let isDataLoaded = false;
 
 // ============================================================
+// localStorage 快取 (Stale-While-Revalidate + hash 短路)
+// ============================================================
+const LS_CACHE_KEY = 'samples_cache_v2';
+const LS_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 天
+let currentDataHash = null; // 目前持有的 hash，用於背景刷新時帶給 GAS
+
+function loadCachedSamples() {
+  try {
+    const raw = localStorage.getItem(LS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.data)) return null;
+    if (Date.now() - parsed.savedAt > LS_CACHE_MAX_AGE) return null;
+    currentDataHash = parsed.hash || null;
+    return parsed.data;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveCachedSamples(data, hash) {
+  currentDataHash = hash || null;
+  try {
+    localStorage.setItem(LS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), data, hash: hash || null }));
+  } catch (e) {
+    // 超過 quota 時清舊的再試一次
+    try {
+      localStorage.removeItem(LS_CACHE_KEY);
+    } catch (_) {}
+  }
+}
+
+// ============================================================
 // 全域資料預載 (大幅提升搜尋與切換速度)
 // ============================================================
 async function fetchGlobalData(force = false) {
   if (isDataLoaded && !force) return state.allSamples;
   if (!dataLoadPromise || force) {
-    const p = apiGet('getAll').then(res => {
+    const params = {};
+    if (currentDataHash && !force) params.hash = currentDataHash;
+    if (force) params._force = '1';
+    const p = apiGet('getAll', params).then(res => {
+      if (res.notModified) {
+        // 資料沒變，沿用 state（state 應已被 primeFromCache 餵過）
+        isDataLoaded = true;
+        if (res.hash) currentDataHash = res.hash;
+        return state.allSamples;
+      }
       state.allSamples = res.results || [];
       isDataLoaded = true;
+      saveCachedSamples(state.allSamples, res.hash);
       return state.allSamples;
     }).finally(() => {
       if (dataLoadPromise === p) dataLoadPromise = null;
@@ -38,6 +81,65 @@ async function fetchGlobalData(force = false) {
     dataLoadPromise = p;
   }
   return dataLoadPromise;
+}
+
+// 從 localStorage 同步取得快取（不打 API），讓 UI 瞬間呈現
+function primeFromCache() {
+  if (state.allSamples.length > 0) return true;
+  const cached = loadCachedSamples();
+  if (cached && cached.length > 0) {
+    state.allSamples = cached;
+    isDataLoaded = true;
+    return true;
+  }
+  return false;
+}
+
+// 背景靜默更新：不觸發載入畫面，新資料到了再重繪當前畫面
+// 帶 hash → 沒變的話 GAS 只回 ~80 bytes，極省流量
+async function refreshInBackground() {
+  try {
+    const params = {};
+    if (currentDataHash) params.hash = currentDataHash;
+    const res = await apiGet('getAll', params);
+    if (res.notModified) {
+      // 資料沒變，什麼都不做
+      isDataLoaded = true;
+      return;
+    }
+    const next = res.results || [];
+    state.allSamples = next;
+    isDataLoaded = true;
+    saveCachedSamples(next, res.hash);
+    rerenderCurrentView();
+  } catch (e) {
+    // 背景更新失敗就靜默
+  }
+}
+
+function rerenderCurrentView() {
+  if (state.mode === 'admin' && state.isAdminLoggedIn) {
+    const container = document.getElementById('adminResults');
+    if (!container) return;
+    const query = (document.getElementById('adminSearchInput')?.value || '').trim().toUpperCase();
+    const source = query ? filterSamples(state.allSamples, query) : state.allSamples;
+    renderAdminResults(container, source);
+    renderAdminStats();
+  } else if (state.mode === 'user') {
+    const queryEl = document.getElementById('searchInput');
+    const query = (queryEl?.value || '').trim().toUpperCase();
+    if (!query) return;
+    const filtered = filterSamples(state.allSamples, query);
+    const sorted = sortSamples(filtered, state.userSort);
+    renderSearchResults(document.getElementById('searchResults'), sorted);
+  }
+}
+
+function filterSamples(samples, queryUpper) {
+  return samples.filter(s =>
+    String(s.productId || '').toUpperCase().includes(queryUpper) ||
+    String(s.notes || '').toUpperCase().includes(queryUpper)
+  );
 }
 
 // ============================================================
@@ -65,14 +167,23 @@ async function fetchGlobalData(force = false) {
     switchMode('admin');
   }
 
-  // 背景預先載入資料，為了讓體驗加速
-  fetchGlobalData();
+  // 先用 localStorage 快取餵 state，下面 applySession 就會立刻有資料
+  primeFromCache();
+  // 背景再去拉最新
+  refreshInBackground();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', applySession);
   } else {
     applySession();
   }
+})();
+
+// 即使非 admin 也預先 prime + 背景 refresh，讓 user 搜尋瞬間有結果
+(function primeUserData() {
+  if (state.isAdminLoggedIn) return; // admin 路徑已經跑過了
+  primeFromCache();
+  refreshInBackground();
 })();
 
 // ============================================================
@@ -206,7 +317,7 @@ function setUserSort(by) {
   updateSortUI('user');
   const query = document.getElementById('searchInput').value.trim().toUpperCase();
   if (query && isDataLoaded) {
-    const filtered = state.allSamples.filter(s => String(s.productId || '').toUpperCase().includes(query));
+    const filtered = filterSamples(state.allSamples, query);
     const sorted = sortSamples(filtered, state.userSort);
     renderSearchResults(document.getElementById('searchResults'), sorted);
   }
@@ -221,9 +332,7 @@ function setAdminSort(by) {
   }
   updateSortUI('admin');
   const query = document.getElementById('adminSearchInput').value.trim().toUpperCase();
-  const source = query
-    ? state.allSamples.filter((s) => String(s.productId || '').toUpperCase().includes(query))
-    : state.allSamples;
+  const source = query ? filterSamples(state.allSamples, query) : state.allSamples;
   const container = document.getElementById('adminResults');
   renderAdminResults(container, source);
 }
@@ -274,7 +383,7 @@ async function performSearch(query) {
   try {
     const results = await fetchGlobalData();
     const queryUpper = query.toUpperCase();
-    const filtered = results.filter(s => String(s.productId || '').toUpperCase().includes(queryUpper));
+    const filtered = filterSamples(results, queryUpper);
     const sorted = sortSamples(filtered, state.userSort);
     renderSearchResults(container, sorted);
   } catch (err) {
@@ -317,10 +426,9 @@ async function loadAllSamples(forceRefresh = false) {
   try {
     const results = await fetchGlobalData(forceRefresh);
     const query = document.getElementById('adminSearchInput').value.trim().toUpperCase();
-    const source = query
-      ? results.filter((s) => String(s.productId || '').toUpperCase().includes(query))
-      : results;
+    const source = query ? filterSamples(results, query) : results;
     renderAdminResults(container, source);
+    renderAdminStats();
   } catch (err) {
     container.innerHTML = `
       <div class="empty-state">
@@ -336,9 +444,7 @@ function handleAdminSearch(event) {
   const query = event.target.value.trim().toUpperCase();
   const container = document.getElementById('adminResults');
 
-  const source = query
-    ? state.allSamples.filter((s) => String(s.productId || '').toUpperCase().includes(query))
-    : state.allSamples;
+  const source = query ? filterSamples(state.allSamples, query) : state.allSamples;
 
   renderAdminResults(container, source);
 }
@@ -395,37 +501,35 @@ function renderAdminResults(container, results) {
     }
     return 0;
   });
+  // lazy render: 只渲染 folder header，內容點開才產生（避免一次塞數百個 <img>）
+  state._folderData = state._folderData || {};
   folderNames.forEach(folderName => {
     const items = folders[folderName];
-    const itemsHtml = items.map(item => renderSampleCard(item, true)).join('');
+    state._folderData[folderName] = items;
     html += `
       <div class="folder-container">
-        <div class="folder-header" onclick="toggleFolder(this)">
+        <div class="folder-header" onclick="toggleFolder(this)" data-folder="${escapeHtml(folderName)}">
           <span class="folder-icon">📁</span>
           <span class="folder-name">${escapeHtml(folderName)}</span>
           <span class="folder-count">(${items.length})</span>
           <span class="folder-toggle">▼</span>
         </div>
-        <div class="folder-content" style="display: none;">
-          <div class="results-grid">${itemsHtml}</div>
-        </div>
+        <div class="folder-content" style="display: none;" data-folder="${escapeHtml(folderName)}" data-rendered="0"></div>
       </div>
     `;
   });
 
   if (noFolder.length > 0) {
-    const noFolderHtml = noFolder.map(item => renderSampleCard(item, true)).join('');
+    state._folderData['__other__'] = noFolder;
     html += `
       <div class="folder-container">
-        <div class="folder-header" onclick="toggleFolder(this)">
+        <div class="folder-header" onclick="toggleFolder(this)" data-folder="__other__">
           <span class="folder-icon">📁</span>
           <span class="folder-name">其他</span>
           <span class="folder-count">(${noFolder.length})</span>
           <span class="folder-toggle">▼</span>
         </div>
-        <div class="folder-content" style="display: none;">
-          <div class="results-grid">${noFolderHtml}</div>
-        </div>
+        <div class="folder-content" style="display: none;" data-folder="__other__" data-rendered="0"></div>
       </div>
     `;
   }
@@ -433,10 +537,78 @@ function renderAdminResults(container, results) {
   container.innerHTML = html;
 }
 
+// ============================================================
+// Admin 統計卡片
+// ============================================================
+function renderAdminStats() {
+  const container = document.getElementById('adminStats');
+  if (!container) return;
+
+  const samples = state.allSamples || [];
+  const totalProducts = samples.length;
+  let totalImages = 0, totalVideos = 0, emptyCount = 0;
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  let recentCount = 0;
+
+  for (const s of samples) {
+    const imgs = s.images || [];
+    if (imgs.length === 0) emptyCount++;
+    for (const m of imgs) {
+      if (m.mediaType === 'video') totalVideos++;
+      else totalImages++;
+    }
+    const t = new Date(s.createdAt || 0).getTime();
+    if (t >= sevenDaysAgo) recentCount++;
+  }
+
+  container.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-icon">📦</div>
+      <div class="stat-body">
+        <div class="stat-value">${totalProducts}</div>
+        <div class="stat-label">總品號數</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🖼️</div>
+      <div class="stat-body">
+        <div class="stat-value">${totalImages}<span class="stat-sub"> · 🎥 ${totalVideos}</span></div>
+        <div class="stat-label">總媒體數</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">✨</div>
+      <div class="stat-body">
+        <div class="stat-value">${recentCount}</div>
+        <div class="stat-label">近 7 天新增</div>
+      </div>
+    </div>
+    ${emptyCount > 0 ? `
+    <div class="stat-card stat-warning">
+      <div class="stat-icon">⚠️</div>
+      <div class="stat-body">
+        <div class="stat-value">${emptyCount}</div>
+        <div class="stat-label">無媒體品號</div>
+      </div>
+    </div>` : ''}
+  `;
+}
+
 function toggleFolder(el) {
   const content = el.nextElementSibling;
   const isHidden = content.style.display === 'none';
-  content.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    // 第一次展開才 render 內容
+    if (content.dataset.rendered !== '1') {
+      const folderName = content.dataset.folder;
+      const items = state._folderData?.[folderName] || [];
+      content.innerHTML = `<div class="results-grid">${items.map(item => renderSampleCard(item, true)).join('')}</div>`;
+      content.dataset.rendered = '1';
+    }
+    content.style.display = 'block';
+  } else {
+    content.style.display = 'none';
+  }
   el.querySelector('.folder-toggle').textContent = isHidden ? '▲' : '▼';
 }
 
@@ -466,7 +638,7 @@ function renderMediaItem(media, isAdmin) {
 
   return `
     <div class="image-item" onclick="openLightbox('${media.fileId}', 'image')">
-      <img id="img-${media.fileId}" src="https://drive.google.com/thumbnail?id=${media.fileId}&sz=w600" alt="${escapeHtml(media.fileName)}" style="background: var(--bg-secondary)" loading="lazy" />
+      <img id="img-${media.fileId}" src="https://drive.google.com/thumbnail?id=${media.fileId}&sz=w400" alt="${escapeHtml(media.fileName)}" style="background: var(--bg-secondary)" loading="lazy" decoding="async" />
       <div class="image-overlay">
         <span class="image-name">${escapeHtml(media.fileName)}</span>
       </div>
@@ -498,13 +670,15 @@ function renderSampleCard(item, isAdmin) {
   let badgeText = '';
   if (imgCount > 0) badgeText += `📷 ${imgCount} 張`;
   if (videoCount > 0) badgeText += `${imgCount > 0 ? ' · ' : ''}🎥 ${videoCount} 支`;
+  if (!badgeText) badgeText = '⚠️ 無媒體';
+  const badgeClass = (imgCount + videoCount) === 0 ? 'card-badge card-badge-warn' : 'card-badge';
 
   return `
     <div class="card">
       <div class="card-header">
         <div class="card-title">
           📦 ${escapeHtml(item.productId)}
-          <span class="card-badge">${badgeText}</span>
+          <span class="${badgeClass}">${badgeText}</span>
         </div>
         ${actionsHtml}
       </div>
@@ -564,11 +738,24 @@ function closeLightbox() {
   videoEl.src = '';
 }
 
-// ESC 鍵關閉 lightbox 和 modal
+// 鍵盤快捷鍵：ESC 關閉、/ 聚焦搜尋
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeLightbox();
     closeModal();
+    return;
+  }
+  if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    const target = state.mode === 'admin'
+      ? document.getElementById('adminSearchInput')
+      : document.getElementById('searchInput');
+    if (target) {
+      e.preventDefault();
+      target.focus();
+      target.select();
+    }
   }
 });
 
