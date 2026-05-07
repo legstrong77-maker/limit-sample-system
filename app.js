@@ -754,7 +754,8 @@ function renderAdminResults(container, results) {
     return 0;
   });
   // lazy render: 只渲染 folder header，內容點開才產生（避免一次塞數百個 <img>）
-  state._folderData = state._folderData || {};
+  // 每次重渲染都重置 _folderData，避免舊資料夾資料殘留
+  state._folderData = {};
   folderNames.forEach(folderName => {
     const items = folders[folderName];
     state._folderData[folderName] = items;
@@ -870,21 +871,46 @@ function renderAdminStats() {
 }
 
 function toggleFolder(el) {
+  const folderName = el.dataset.folder;
   const content = el.nextElementSibling;
-  const isHidden = content.style.display === 'none';
+  console.log('[toggleFolder] 點擊:', folderName, '| nextSibling:', content, '| 目前 display:', content?.style.display);
+
+  if (!content || !content.classList.contains('folder-content')) {
+    console.error('[toggleFolder] nextElementSibling 不是 .folder-content！結構壞掉。', { el, content });
+    return;
+  }
+
+  const isHidden = content.style.display === 'none' || content.style.display === '';
   if (isHidden) {
     // 第一次展開才 render 內容
     if (content.dataset.rendered !== '1') {
-      const folderName = content.dataset.folder;
       const items = state._folderData?.[folderName] || [];
-      content.innerHTML = `<div class="results-grid">${items.map(item => renderSampleCard(item, true)).join('')}</div>`;
+      console.log('[toggleFolder] 展開', folderName, '| items 數:', items.length, '| _folderData keys:', Object.keys(state._folderData || {}));
+      const cards = [];
+      for (const item of items) {
+        try {
+          cards.push(renderSampleCard(item, true));
+        } catch (err) {
+          console.error('[toggleFolder] renderSampleCard 失敗:', item, err);
+          const pid = escapeHtml(String(item?.productId ?? '(未知品號)'));
+          cards.push(`
+            <div class="card" style="border:1px solid #ef4444">
+              <div class="card-header">
+                <div class="card-title">⚠️ ${pid}（顯示失敗：${escapeHtml(err.message || String(err))}）</div>
+              </div>
+            </div>
+          `);
+        }
+      }
+      content.innerHTML = `<div class="results-grid">${cards.join('')}</div>`;
       content.dataset.rendered = '1';
     }
     content.style.display = 'block';
   } else {
     content.style.display = 'none';
   }
-  el.querySelector('.folder-toggle').textContent = isHidden ? '▲' : '▼';
+  const toggle = el.querySelector('.folder-toggle');
+  if (toggle) toggle.textContent = isHidden ? '▲' : '▼';
 }
 
 // ============================================================
@@ -924,7 +950,8 @@ function renderMediaItem(media, isAdmin) {
 }
 
 function renderSampleCard(item, isAdmin) {
-  const mediaHtml = item.images
+  const images = Array.isArray(item.images) ? item.images : [];
+  const mediaHtml = images
     .map((img) => renderMediaItem(img, isAdmin))
     .join('');
 
@@ -955,8 +982,8 @@ function renderSampleCard(item, isAdmin) {
     ? new Date(item.updatedAt).toLocaleString('zh-TW')
     : '';
 
-  const videoCount = item.images.filter(m => m.mediaType === 'video').length;
-  const imgCount = item.images.length - videoCount;
+  const videoCount = images.filter(m => m.mediaType === 'video').length;
+  const imgCount = images.length - videoCount;
   let badgeText = '';
   if (imgCount > 0) badgeText += `📷 ${imgCount} 張`;
   if (videoCount > 0) badgeText += `${imgCount > 0 ? ' · ' : ''}🎥 ${videoCount} 支`;
@@ -1207,7 +1234,7 @@ function showEditModal(productId) {
   state.editDeletedImageIds = [];
   state.currentEditProductId = productId; // 存在 state，不透過 DOM 字串傳遞
 
-  const existingMediaHtml = sample.images
+  const existingMediaHtml = (Array.isArray(sample.images) ? sample.images : [])
     .map((media, idx) => {
       const isVideo = media.mediaType === 'video';
       const thumb = isVideo
