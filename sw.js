@@ -1,15 +1,15 @@
 // 限樣系統 Service Worker
 // 策略：app shell 走 stale-while-revalidate，drive thumbnail 走 cache-first
-const CACHE_VERSION = 'v8';
+const CACHE_VERSION = 'v9';
 const SHELL_CACHE = `shell-${CACHE_VERSION}`;
 const THUMB_CACHE = `thumb-v1`;
 
 const SHELL_FILES = [
   './',
   './index.html',
-  './app.js?v=19',
+  './app.js?v=20',
   './style.css?v=15',
-  './config.js?v=19',
+  './config.js?v=20',
   './manifest.webmanifest',
 ];
 

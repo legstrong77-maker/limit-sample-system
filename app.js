@@ -25,9 +25,43 @@ let isDataLoaded = false;
 // ============================================================
 // localStorage 快取 (Stale-While-Revalidate + hash 短路)
 // ============================================================
-const LS_CACHE_KEY = 'samples_cache_v2';
+// v3：normalize 後的資料（notes/productId 等強制 string）
+const LS_CACHE_KEY = 'samples_cache_v3';
 const LS_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 天
 let currentDataHash = null; // 目前持有的 hash，用於背景刷新時帶給 GAS
+
+// 統一型別防呆：Sheets 會把純數字欄位存成 number / 日期欄位存成 Date，
+// 前端對 number 呼叫 .replace/.slice 會炸。所有資料入口都先過這個函式，
+// 即使 GAS 端漏網也擋得住。
+function asString(v) {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+function normalizeSample(s) {
+  if (!s || typeof s !== 'object') return s;
+  s.productId = asString(s.productId);
+  s.notes = asString(s.notes);
+  s.createdAt = asString(s.createdAt);
+  s.updatedAt = asString(s.updatedAt);
+  s.expiresAt = asString(s.expiresAt);
+  if (Array.isArray(s.images)) {
+    for (const m of s.images) {
+      if (!m || typeof m !== 'object') continue;
+      m.id = asString(m.id);
+      m.fileId = asString(m.fileId);
+      m.fileName = asString(m.fileName);
+      m.mediaType = asString(m.mediaType) || 'image';
+    }
+  } else {
+    s.images = [];
+  }
+  return s;
+}
+function normalizeSamples(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.map(normalizeSample);
+}
 
 function loadCachedSamples() {
   try {
@@ -37,7 +71,7 @@ function loadCachedSamples() {
     if (!parsed || !Array.isArray(parsed.data)) return null;
     if (Date.now() - parsed.savedAt > LS_CACHE_MAX_AGE) return null;
     currentDataHash = parsed.hash || null;
-    return parsed.data;
+    return normalizeSamples(parsed.data);
   } catch (e) {
     return null;
   }
@@ -71,7 +105,7 @@ async function fetchGlobalData(force = false) {
         if (res.hash) currentDataHash = res.hash;
         return state.allSamples;
       }
-      state.allSamples = res.results || [];
+      state.allSamples = normalizeSamples(res.results || []);
       isDataLoaded = true;
       saveCachedSamples(state.allSamples, res.hash);
       return state.allSamples;
@@ -107,7 +141,7 @@ async function refreshInBackground() {
       isDataLoaded = true;
       return;
     }
-    const next = res.results || [];
+    const next = normalizeSamples(res.results || []);
     state.allSamples = next;
     isDataLoaded = true;
     saveCachedSamples(next, res.hash);

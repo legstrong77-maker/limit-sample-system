@@ -594,38 +594,51 @@ function rowToObject(headers, row) {
   return obj;
 }
 
+// Sheets 會把純數字欄位存成 number，前端拿到後對它呼叫 .replace/.slice 會炸。
+// 統一在這裡把所有「應為字串」的欄位強制轉 string，從資料源頭斷掉這類 bug。
+function asStr(v) {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
 function groupByProductId(rows) {
   const map = {};
 
   for (const row of rows) {
-    const pid = row.productId;
+    const pid = asStr(row.productId);
+    const notes = asStr(row.notes);
+    const createdAt = asStr(row.createdAt);
+    const updatedAt = asStr(row.updatedAt);
+    const expiresAt = asStr(row.expiresAt);
+
     if (!map[pid]) {
       map[pid] = {
         productId: pid,
-        notes: row.notes,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-        expiresAt: row.expiresAt || '',
+        notes: notes,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        expiresAt: expiresAt,
         images: [],
       };
     }
     // 任何 row 有 expiresAt 就用那個
-    if (row.expiresAt && !map[pid].expiresAt) {
-      map[pid].expiresAt = row.expiresAt;
+    if (expiresAt && !map[pid].expiresAt) {
+      map[pid].expiresAt = expiresAt;
     }
     const sortRaw = row.sortOrder;
     const sortNum = (sortRaw === '' || sortRaw == null) ? Number.MAX_SAFE_INTEGER : Number(sortRaw);
     map[pid].images.push({
-      id: String(row.id),
-      fileId: row.imageFileId,
-      fileName: row.imageName,
-      mediaType: row.mediaType || 'image',
+      id: asStr(row.id),
+      fileId: asStr(row.imageFileId),
+      fileName: asStr(row.imageName),
+      mediaType: asStr(row.mediaType) || 'image',
       _sort: sortNum,
-      _created: row.createdAt,
+      _created: createdAt,
     });
-    if (row.updatedAt > map[pid].updatedAt) {
-      map[pid].notes = row.notes;
-      map[pid].updatedAt = row.updatedAt;
+    if (updatedAt > map[pid].updatedAt) {
+      map[pid].notes = notes;
+      map[pid].updatedAt = updatedAt;
     }
   }
 
