@@ -3039,7 +3039,7 @@ function exportCsv() {
     const i = (s.images || []).length - v;
     return [
       s.productId || '',
-      (s.notes || '').replace(/\n/g, ' '),
+      String(s.notes || '').replace(/\n/g, ' '),
       i,
       v,
       s.createdAt ? new Date(s.createdAt).toLocaleString('zh-TW') : '',
@@ -3190,18 +3190,21 @@ function showStatsDashboard() {
 const TAG_REGEX = /#([^\s#,]+)/g;
 
 function extractTags(notes) {
-  if (!notes) return [];
+  if (notes == null || notes === '') return [];
+  const str = String(notes); // Sheets 會把純數字 notes 存成 number
   const tags = [];
+  // 不共用 stateful 的 TAG_REGEX，避免 lastIndex 殘留
+  const re = /#([^\s#,]+)/g;
   let m;
-  while ((m = TAG_REGEX.exec(notes)) !== null) {
+  while ((m = re.exec(str)) !== null) {
     tags.push(m[1]);
   }
   return [...new Set(tags)];
 }
 
 function notesWithoutTags(notes) {
-  if (!notes) return '';
-  return notes.replace(TAG_REGEX, '').replace(/\s+/g, ' ').trim();
+  if (notes == null || notes === '') return '';
+  return String(notes).replace(/#([^\s#,]+)/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function renderTagsHtml(tags) {
