@@ -1,281 +1,124 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="限樣管理系統 - 品質管控的限度樣品查詢與管理平台" />
-    <meta name="theme-color" content="#6366f1" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="限樣系統" />
-    <link rel="manifest" href="manifest.webmanifest" />
-    <title>限樣系統</title>
-    <link rel="stylesheet" href="style.css?v=15" />
-  </head>
-  <body>
-    <!-- Offline banner -->
-    <div class="offline-banner" id="offlineBanner">
-      <span class="offline-dot"></span>
-      <span class="offline-msg">離線模式 — 顯示快取資料</span>
-    </div>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your Name — Portfolio</title>
+  <meta name="description" content="個人作品集 Portfolio" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <nav class="nav container">
+      <a class="brand" href="#top">YN<span class="dot">.</span></a>
+      <button class="nav-toggle" aria-label="開啟選單" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links">
+        <li><a href="#about">關於</a></li>
+        <li><a href="#skills">技能</a></li>
+        <li><a href="#projects">作品</a></li>
+        <li><a href="#contact">聯絡</a></li>
+      </ul>
+    </nav>
+  </header>
 
-    <!-- Toast Container -->
-    <div class="toast-container" id="toastContainer"></div>
-
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay">
-      <div class="spinner-large"></div>
-      <span style="color: var(--text-secondary)">處理中...</span>
-    </div>
-
-    <!-- Lightbox -->
-    <div class="lightbox-overlay" id="lightbox" onclick="closeLightbox()">
-      <button class="lightbox-close" onclick="closeLightbox()">&times;</button>
-      <div class="lightbox-tools">
-        <button id="lightboxHistoryBtn" class="lightbox-tool-btn" onclick="event.stopPropagation(); openHistoryTimeline()">📅 歷史</button>
-        <button id="lightboxArBtn" class="lightbox-tool-btn" onclick="event.stopPropagation(); openArOverlay()">📷 AR 對照</button>
-        <button id="lightboxAnnotateBtn" class="lightbox-annotate" onclick="event.stopPropagation(); openAnnotator()">✏️ 標註</button>
+  <main id="top">
+    <section class="hero container">
+      <p class="eyebrow">Hello, I'm</p>
+      <h1>Your Name</h1>
+      <p class="tagline">全端工程師 · 喜歡把想法做成東西</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#projects">看看作品</a>
+        <a class="btn btn-ghost" href="#contact">聯絡我</a>
       </div>
-      <img id="lightboxImg" src="" alt="限樣照片" />
-      <video id="lightboxVideo" src="" style="display:none;max-width:95%;max-height:95vh;border-radius:8px;" onclick="event.stopPropagation()"></video>
-    </div>
+    </section>
 
-    <!-- Compare Mode Overlay -->
-    <div class="compare-overlay" id="compareOverlay">
-      <div class="compare-toolbar">
-        <h3>🔄 並排比較</h3>
-        <div class="compare-tools">
-          <label class="compare-toggle">
-            <input type="checkbox" id="compareSyncZoom" checked /> 同步縮放
-          </label>
-          <button class="btn btn-secondary btn-sm" onclick="compareZoomReset()">重置縮放</button>
-          <button class="btn btn-secondary btn-sm" onclick="compareToggleNotes()">📝 顯示注意事項</button>
-          <button class="btn btn-secondary btn-sm" onclick="closeCompareMode()">✖ 關閉</button>
-        </div>
+    <section id="about" class="section container">
+      <h2>關於我</h2>
+      <p>
+        我是一位喜歡解決問題的開發者，過去幾年累積了 Web、API 與雲端的經驗。
+        工作之外會做小工具、寫筆記、跑步，並嘗試任何能讓生活更有趣的事情。
+      </p>
+    </section>
+
+    <section id="skills" class="section container">
+      <h2>技能</h2>
+      <ul class="skill-grid">
+        <li>JavaScript / TypeScript</li>
+        <li>React / Next.js</li>
+        <li>Node.js</li>
+        <li>Python</li>
+        <li>HTML / CSS</li>
+        <li>Git / GitHub</li>
+        <li>Docker</li>
+        <li>CI/CD</li>
+      </ul>
+    </section>
+
+    <section id="projects" class="section container">
+      <h2>作品</h2>
+      <div class="project-grid">
+        <article class="project-card">
+          <h3>專案一</h3>
+          <p>一句話描述這個專案做了什麼、用了什麼技術、解決了什麼問題。</p>
+          <div class="tags">
+            <span>React</span><span>Node</span><span>PostgreSQL</span>
+          </div>
+          <a class="link" href="#" rel="noopener">查看 →</a>
+        </article>
+
+        <article class="project-card">
+          <h3>專案二</h3>
+          <p>一句話描述這個專案做了什麼、用了什麼技術、解決了什麼問題。</p>
+          <div class="tags">
+            <span>TypeScript</span><span>Next.js</span>
+          </div>
+          <a class="link" href="#" rel="noopener">查看 →</a>
+        </article>
+
+        <article class="project-card">
+          <h3>專案三</h3>
+          <p>一句話描述這個專案做了什麼、用了什麼技術、解決了什麼問題。</p>
+          <div class="tags">
+            <span>Python</span><span>FastAPI</span>
+          </div>
+          <a class="link" href="#" rel="noopener">查看 →</a>
+        </article>
       </div>
-      <div class="compare-stage" id="compareStage"></div>
+    </section>
+
+    <section id="contact" class="section container">
+      <h2>聯絡</h2>
+      <p>歡迎透過以下方式找到我：</p>
+      <ul class="contact-list">
+        <li><a href="mailto:you@example.com">you@example.com</a></li>
+        <li><a href="https://github.com/" rel="noopener" target="_blank">GitHub</a></li>
+        <li><a href="https://www.linkedin.com/" rel="noopener" target="_blank">LinkedIn</a></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; <span id="year"></span> Your Name. Built with plain HTML/CSS.</p>
     </div>
+  </footer>
 
-    <!-- Annotator Modal -->
-    <div class="annotator-overlay" id="annotatorOverlay">
-      <div class="annotator-toolbar">
-        <div class="ann-tool-group">
-          <button class="ann-color active" data-color="#ef4444" style="background:#ef4444" onclick="setAnnColor(this,'#ef4444')" title="紅色"></button>
-          <button class="ann-color" data-color="#f59e0b" style="background:#f59e0b" onclick="setAnnColor(this,'#f59e0b')" title="黃色"></button>
-          <button class="ann-color" data-color="#10b981" style="background:#10b981" onclick="setAnnColor(this,'#10b981')" title="綠色"></button>
-          <button class="ann-color" data-color="#3b82f6" style="background:#3b82f6" onclick="setAnnColor(this,'#3b82f6')" title="藍色"></button>
-          <button class="ann-color" data-color="#000000" style="background:#000000" onclick="setAnnColor(this,'#000000')" title="黑色"></button>
-        </div>
-        <div class="ann-tool-group">
-          <button class="ann-size active" data-size="3" onclick="setAnnSize(this,3)" title="細"><span class="ann-size-dot s1"></span></button>
-          <button class="ann-size" data-size="6" onclick="setAnnSize(this,6)" title="中"><span class="ann-size-dot s2"></span></button>
-          <button class="ann-size" data-size="12" onclick="setAnnSize(this,12)" title="粗"><span class="ann-size-dot s3"></span></button>
-        </div>
-        <div class="ann-tool-group">
-          <button class="ann-mode active" data-mode="pen" onclick="setAnnMode(this,'pen')" title="自由筆">✏️</button>
-          <button class="ann-mode" data-mode="rect" onclick="setAnnMode(this,'rect')" title="矩形框">▭</button>
-          <button class="ann-mode" data-mode="arrow" onclick="setAnnMode(this,'arrow')" title="箭頭">↗</button>
-        </div>
-        <div class="ann-tool-group">
-          <button class="ann-action" onclick="annUndo()" title="復原">↶</button>
-          <button class="ann-action" onclick="annClear()" title="全清">🗑</button>
-        </div>
-        <div class="ann-tool-group ann-spacer">
-          <button class="btn btn-secondary btn-sm" onclick="closeAnnotator()">取消</button>
-          <button class="btn btn-primary btn-sm" onclick="saveAnnotation()">💾 儲存為新照片</button>
-        </div>
-      </div>
-      <div class="annotator-stage" id="annotatorStage">
-        <canvas id="annotatorCanvas"></canvas>
-      </div>
-    </div>
-
-    <!-- Modal -->
-    <div class="modal-overlay" id="modalOverlay">
-      <div class="modal-content" id="modalContent"></div>
-    </div>
-
-    <!-- 手機快拍 FAB (admin 才顯示) -->
-    <button id="quickShotFab" class="quick-shot-fab" style="display:none" onclick="openQuickShot()" title="快拍上傳">
-      <span>📸</span>
-    </button>
-    <input type="file" id="quickShotInput" accept="image/*" capture="environment" multiple
-           style="display:none" onchange="onQuickShotFiles(event)" />
-
-    <!-- App -->
-    <div class="app-container">
-      <!-- Header -->
-      <header class="app-header">
-        <div class="app-logo">
-          <div class="app-logo-icon">📋</div>
-          <h1>限樣系統</h1>
-        </div>
-        <div class="header-actions">
-          <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="切換主題">🌙</button>
-          <div class="mode-tabs">
-            <button
-              class="mode-tab active"
-              data-mode="user"
-              onclick="switchMode('user')"
-              id="tabUser"
-            >
-              <span class="tab-icon">🔍</span>
-              查詢模式
-            </button>
-            <button
-              class="mode-tab"
-              data-mode="admin"
-              onclick="switchMode('admin')"
-              id="tabAdmin"
-            >
-              <span class="tab-icon">⚙️</span>
-              管理模式
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <!-- User Mode -->
-      <section id="userSection" class="page-section">
-        <div class="search-container">
-          <span class="search-icon">🔍</span>
-          <input
-            type="text"
-            class="search-input"
-            id="searchInput"
-            placeholder="輸入品號 / 注意事項 / #標籤搜尋…（按 / 快速聚焦）"
-            onkeyup="handleSearch(event)"
-          />
-          <button class="search-scan-btn" onclick="openBarcodeScanner('searchInput')" title="掃描條碼">📷</button>
-        </div>
-
-        <!-- 歡迎面板 (沒搜尋字時顯示) -->
-        <div id="welcomePanel" class="welcome-panel"></div>
-
-        <!-- 排序列 -->
-        <div class="sort-toolbar">
-          <span class="sort-label">排序：</span>
-          <button class="sort-btn active" id="userSortId" onclick="setUserSort('productId')">
-            品號 <span class="sort-arrow">↑</span>
-          </button>
-          <button class="sort-btn" id="userSortDate" onclick="setUserSort('createdAt')">
-            建立日期 <span class="sort-arrow">↕</span>
-          </button>
-        </div>
-
-        <div id="searchResults" class="results-grid">
-          <div class="empty-state">
-            <div class="empty-icon">📦</div>
-            <h3>輸入品號開始搜尋</h3>
-            <p>在上方搜尋欄輸入品號，即可查看對應的限樣資料</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- Admin Mode -->
-      <section id="adminSection" class="page-section" style="display: none">
-        <!-- Admin Login (shown first) -->
-        <div id="adminLogin">
-          <div class="card admin-login-card">
-            <div class="login-icon">🔐</div>
-            <h2>管理員登入</h2>
-            <p>請輸入管理員密碼以進入管理模式</p>
-            <div class="form-group">
-              <input
-                type="password"
-                class="form-input"
-                id="adminPassword"
-                placeholder="請輸入密碼"
-                onkeyup="if(event.key==='Enter') adminLogin()"
-              />
-            </div>
-            <button class="btn btn-primary btn-lg" onclick="adminLogin()" style="width: 100%">
-              登入
-            </button>
-          </div>
-        </div>
-
-        <!-- Admin Panel (shown after login) -->
-        <div id="adminPanel" style="display: none">
-          <div class="admin-toolbar">
-            <h2>📋 限樣管理</h2>
-            <div style="display: flex; gap: 8px">
-              <button id="btnManagePwd" class="btn btn-secondary" style="display:none" onclick="showPwdManager()">
-                🔑 密碼管理
-              </button>
-              <button id="btnAuditLog" class="btn btn-secondary" style="display:none" onclick="showAuditLog()">
-                📜 變更紀錄
-              </button>
-              <button class="btn btn-secondary" onclick="showStatsDashboard()" title="查詢統計儀表板">
-                📈 統計
-              </button>
-              <button class="btn btn-secondary" onclick="showHeatmapModal()" title="全域熱力圖">
-                🗺️ 熱力圖
-              </button>
-              <button class="btn btn-secondary" onclick="exportCsv()" title="匯出全部品號為 CSV">
-                📊 匯出
-              </button>
-              <button class="btn btn-secondary" onclick="showImportCsvModal()" title="從 CSV 批次更新注意事項">
-                📥 匯入
-              </button>
-              <button class="btn btn-primary" onclick="showCreateModal()">
-                ➕ 新增限樣
-              </button>
-              <button class="btn btn-ghost" onclick="adminLogout()">
-                🚪 登出
-              </button>
-            </div>
-          </div>
-
-          <!-- 統計卡片 -->
-          <div class="stats-grid" id="adminStats"></div>
-
-          <div class="search-container">
-            <span class="search-icon">🔍</span>
-            <input
-              type="text"
-              class="search-input"
-              id="adminSearchInput"
-              placeholder="搜尋品號 / 注意事項 / #標籤..."
-              onkeyup="handleAdminSearch(event)"
-            />
-            <button class="search-scan-btn" onclick="openBarcodeScanner('adminSearchInput')" title="掃描條碼">📷</button>
-          </div>
-
-          <!-- 批次操作工具列 -->
-          <div id="batchToolbar" class="batch-toolbar">
-            <span class="batch-info">已選 <strong id="batchCount">0</strong> 個品號</span>
-            <button class="btn btn-secondary btn-sm" onclick="selectAllVisible()">全選</button>
-            <button class="btn btn-secondary btn-sm" onclick="clearSelection()">取消選取</button>
-            <button class="btn btn-secondary btn-sm" onclick="openCompareMode()">🔄 並排比較</button>
-            <button class="btn btn-secondary btn-sm" onclick="batchPrint()">🖨️ 批次列印</button>
-            <button class="btn btn-secondary btn-sm" onclick="openDeliveryNoteModal()">📋 交付單</button>
-            <button class="btn btn-danger btn-sm" onclick="batchDelete()">🗑️ 批次刪除</button>
-          </div>
-
-          <!-- 排序列 -->
-          <div class="sort-toolbar">
-            <span class="sort-label">排序：</span>
-            <button class="sort-btn active" id="adminSortId" onclick="setAdminSort('productId')">
-              品號 <span class="sort-arrow">↑</span>
-            </button>
-            <button class="sort-btn" id="adminSortDate" onclick="setAdminSort('createdAt')">
-              建立日期 <span class="sort-arrow">↕</span>
-            </button>
-          </div>
-
-          <div id="adminResults">
-            <div class="empty-state">
-              <div class="empty-icon">⏳</div>
-              <h3>載入中...</h3>
-            </div>
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <!-- QR Code 產生 (vanilla JS, ~5KB) -->
-    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-    <script src="config.js?v=20"></script>
-    <script src="app.js?v=20"></script>
-  </body>
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+    const toggle = document.querySelector('.nav-toggle');
+    const links = document.querySelector('.nav-links');
+    toggle.addEventListener('click', () => {
+      const open = links.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+    document.querySelectorAll('.nav-links a').forEach(a => {
+      a.addEventListener('click', () => {
+        links.classList.remove('open');
+        toggle.setAttribute('aria-expanded', 'false');
+      });
+    });
+  </script>
+</body>
 </html>
