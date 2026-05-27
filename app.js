@@ -1005,6 +1005,7 @@ function renderSampleCard(item, isAdmin) {
       <button class="icon-btn" data-product-id="${pidEsc}" onclick="showQrModal(this)" title="QR Code 分享">🔗</button>
       <button class="icon-btn" data-product-id="${pidEsc}" onclick="printSample(this)" title="列印此限樣">🖨️</button>
       ${isAdmin ? `
+      <a class="icon-btn" href="https://fukai-hub.fly.dev/product/${pidEsc}" target="_blank" rel="noopener" title="到 Fukai Hub 看此品號成本/訂單/出貨紀錄" style="text-decoration:none">🏭</a>
       <button class="icon-btn" data-product-id="${pidEsc}" onclick="openHandwriteFor(this)" title="寫手寫便條">📝</button>
       <button class="btn btn-secondary btn-sm" data-product-id="${pidEsc}" onclick="showEditModalById(this)">✏️ 編輯</button>
       <button class="btn btn-danger btn-sm" data-product-id="${pidEsc}" onclick="showDeleteConfirmById(this)">🗑️ 刪除</button>
